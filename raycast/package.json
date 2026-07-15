@@ -1,0 +1,57 @@
+{
+  "$schema": "https://www.raycast.com/schemas/extension.json",
+  "name": "quick-translate",
+  "title": "Quick Translate",
+  "description": "Translate Russian text into polished business English via the qt CLI",
+  "icon": "command-icon.png",
+  "author": "fred",
+  "license": "MIT",
+  "categories": ["Productivity"],
+  "commands": [
+    {
+      "name": "translate",
+      "title": "Translate RU→EN",
+      "subtitle": "qt",
+      "description": "Open a form to translate Russian text into business English",
+      "mode": "view"
+    }
+  ],
+  "preferences": [
+    {
+      "name": "qtPath",
+      "type": "textfield",
+      "required": false,
+      "title": "qt binary path",
+      "description": "Absolute path to the qt executable",
+      "default": "/opt/homebrew/bin/qt"
+    },
+    {
+      "name": "defaultProfile",
+      "type": "textfield",
+      "required": false,
+      "title": "Default profile",
+      "description": "qt profile preselected in the form (leave blank to use the active profile)",
+      "default": "LiteLLM"
+    }
+  ],
+  "dependencies": {
+    "@raycast/api": "^1.104.0"
+  },
+  "devDependencies": {
+    "@raycast/eslint-config": "^1.0.11",
+    "@types/node": "^20.11.0",
+    "@types/react": "^19.0.10",
+    "eslint": "^8.57.0",
+    "prettier": "^3.3.0",
+    "typescript": "^5.4.0"
+  },
+  "overrides": {
+    "@types/react": "^19.0.10"
+  },
+  "scripts": {
+    "build": "ray build -e dist",
+    "dev": "ray develop",
+    "fix-lint": "ray lint --fix",
+    "lint": "ray lint"
+  }
+}
