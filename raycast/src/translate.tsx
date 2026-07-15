@@ -14,7 +14,7 @@ import { execFile } from "child_process";
 import { readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { promisify } from "util";
 
 const execFileAsync = promisify(execFile);
@@ -58,7 +58,7 @@ function Result({ text, onAgain }: { text: string; onAgain: () => void }) {
 export default function Command() {
   const { qtPath, defaultProfile } = getPreferenceValues<Preferences>();
   const { push, pop } = useNavigation();
-  const { names, active } = loadProfiles();
+  const { names, active } = useMemo(() => loadProfiles(), []);
   const [isLoading, setIsLoading] = useState(false);
 
   const preselected =
@@ -81,17 +81,20 @@ export default function Command() {
     args.push("--text", text);
 
     try {
-      const { stdout } = await execFileAsync(qtPath, args, { timeout: 120_000 });
+      const { stdout } = await execFileAsync(qtPath || "qt", args, { timeout: 120_000 });
       const translation = stdout.trim();
       await Clipboard.copy(translation);
       toast.style = Toast.Style.Success;
       toast.title = "Copied to clipboard";
       push(<Result text={translation} onAgain={pop} />);
     } catch (err) {
-      const e = err as { stderr?: string; message?: string };
+      const e = err as { code?: string; stderr?: string; message?: string };
       toast.style = Toast.Style.Failure;
       toast.title = "Translation failed";
-      toast.message = (e.stderr || e.message || String(err)).trim();
+      toast.message =
+        e.code === "ENOENT"
+          ? `qt not found at "${qtPath || "qt"}" — set the correct path in extension preferences.`
+          : (e.stderr || e.message || String(err)).trim();
     } finally {
       setIsLoading(false);
     }
