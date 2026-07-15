@@ -1,0 +1,33 @@
+# Compiled binary (built via `go build -o qt ./cmd/qt`)
+/qt
+
+# Other build outputs
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test / coverage artifacts
+*.test
+*.out
+coverage.*
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Local app config — qt writes config.json with API keys into the user config
+# dir, but ignore it here too so a stray copy can never be committed.
+config.json
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
