@@ -11,6 +11,24 @@ translate".
 
 ## Installation
 
+### Homebrew
+
+`qt` ships a Homebrew formula in this repository. Tap it and install:
+
+```sh
+brew tap fred01/quick-translate https://github.com/fred01/quick-translate
+brew install fred01/quick-translate/qt
+```
+
+Use the fully-qualified name `fred01/quick-translate/qt` to avoid a clash with
+Homebrew core's `qt` (the Qt GUI framework). Upgrade with
+`brew upgrade fred01/quick-translate/qt`.
+
+Prebuilt archives for macOS, Linux, and Windows (amd64 and arm64) are also
+attached to each [GitHub release](https://github.com/fred01/quick-translate/releases).
+
+### From source
+
 Requires Go 1.25 or newer.
 
 ```sh
