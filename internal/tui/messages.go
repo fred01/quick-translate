@@ -11,12 +11,13 @@ import (
 	"github.com/fred01/quick-translate/internal/translate"
 )
 
-// resultMsg carries the outcome of one multi-tone translation request: a map
-// of tone to translated text on success, or a request-level error. A requested
-// tone the model omitted is simply absent from results.
+// resultMsg carries the outcome of one translation request: the translated
+// text on success, or a safe error on failure. tone identifies which of a
+// batch's per-tone requests this result belongs to.
 type resultMsg struct {
 	seq     int
-	results map[prompt.Tone]string
+	tone    prompt.Tone
+	text    string
 	err     error
 	elapsed float64 // seconds
 }

@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -14,10 +13,6 @@ import (
 	"github.com/fred01/quick-translate/internal/prompt"
 	"github.com/fred01/quick-translate/internal/translate"
 )
-
-// errMissingVariant marks a tone the model failed to return in a multi-tone
-// response, so its tab can show an error instead of empty text.
-var errMissingVariant = errors.New("the model did not return this variant")
 
 // Update implements tea.Model.
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -54,21 +49,21 @@ func (m model) updateTranslate(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.seq != m.reqSeq {
 			return m, nil
 		}
-		m.busy = false
-		for _, tone := range m.reqTones {
-			switch {
-			case msg.err != nil:
-				m.results[tone] = toneResult{err: msg.err, elapsed: msg.elapsed}
-			default:
-				text, ok := msg.results[tone]
-				if !ok || strings.TrimSpace(text) == "" {
-					m.results[tone] = toneResult{err: errMissingVariant, elapsed: msg.elapsed}
-					continue
-				}
-				m.results[tone] = toneResult{text: text, outputChars: len([]rune(text)), elapsed: msg.elapsed}
-			}
+		m.results[msg.tone] = toneResult{
+			text:        msg.text,
+			err:         msg.err,
+			outputChars: len([]rune(msg.text)),
+			elapsed:     msg.elapsed,
 		}
-		m.syncActiveResult()
+		if m.pending > 0 {
+			m.pending--
+		}
+		if m.pending == 0 {
+			m.busy = false
+		}
+		if msg.tone == m.activeResult {
+			m.syncActiveResult()
+		}
 		return m, nil
 
 	case tea.MouseClickMsg:
@@ -103,6 +98,7 @@ func (m *model) handleKeyTranslate(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			m.cancel()
 			m.busy = false
 			m.cancelled = true
+			m.pending = 0
 		}
 		return nil, true
 	case "tab":
@@ -173,6 +169,7 @@ func (m *model) clearAll() tea.Cmd {
 		m.cancel = nil
 	}
 	m.busy = false
+	m.pending = 0
 	m.cancelled = false
 	m.copied = false
 	m.notice = ""
@@ -256,10 +253,10 @@ func (m *model) activeResultText() string {
 	return ""
 }
 
-// submit starts one translation request covering every selected tone. The
-// model is asked for all variants at once, so N tones cost a single
-// round-trip. It does nothing when a batch is already running, Source is empty
-// or whitespace-only, or no tone is selected.
+// submit starts one translation request per selected tone, fired
+// concurrently so all variants come back from a single round of typing. It
+// does nothing when a batch is already running, Source is empty or
+// whitespace-only, or no tone is selected.
 func (m *model) submit() tea.Cmd {
 	if m.busy {
 		return nil
@@ -288,13 +285,20 @@ func (m *model) submit() tea.Cmd {
 	m.reqTones = tones
 	m.results = map[prompt.Tone]toneResult{}
 	m.activeResult = tones[0]
+	m.pending = len(tones)
 	m.result.SetContent("")
 	// Recompute pane heights now that the result-tab row may be shown.
 	if m.width > 0 {
 		m.resize(m.width, m.height)
 	}
 
-	return tea.Batch(m.spin.Tick, translateCmd(ctx, m.translator, source, m.context.Value(), tones, translate.DiscardReporter{}, seq))
+	contextValue := m.context.Value()
+	cmds := []tea.Cmd{m.spin.Tick}
+	for _, tone := range tones {
+		input := translate.TranslationInput{Source: source, Context: contextValue, Tone: tone}
+		cmds = append(cmds, translateCmd(ctx, m.translator, input, translate.DiscardReporter{}, seq))
+	}
+	return tea.Batch(cmds...)
 }
 
 // copyResult copies the active translation to the system clipboard via OSC52.
@@ -721,9 +725,6 @@ func (m *model) saveEdit() tea.Cmd {
 		BaseURL: m.setupInputs[editBaseURL].Value(),
 		Model:   m.setupInputs[editModel].Value(),
 		APIKey:  resolveAPIKey(m.setupInputs[editAPIKey].Value(), m.existingKey()),
-		// The setup form does not expose the timeout; preserve the edited
-		// profile's existing value (0 for a new profile) so it is not wiped.
-		TimeoutSeconds: m.store.Profiles[m.editName].TimeoutSeconds,
 	}
 	if _, err := candidate.Resolve(); err != nil {
 		m.setupErr = err

@@ -158,11 +158,12 @@ type model struct {
 
 	// Results of the most recent batch. reqTones lists the requested tones in
 	// display order (the result-tab buttons); results holds each tone's
-	// outcome; activeResult is the tab currently shown in the Translation
-	// viewport. A batch is a single request that returns every tone at once.
+	// outcome as it arrives; activeResult is the tab currently shown in the
+	// Translation viewport; pending counts requests still in flight.
 	reqTones     []prompt.Tone
 	results      map[prompt.Tone]toneResult
 	activeResult prompt.Tone
+	pending      int
 
 	cancel context.CancelFunc
 	reqSeq int
@@ -284,13 +285,12 @@ func Run(
 	return nil
 }
 
-// translateCmd runs one multi-tone translation request in a Bubble Tea command
-// (a single model call that returns every requested tone) and reports its
-// outcome as a resultMsg tagged with seq.
-func translateCmd(ctx context.Context, translator translate.Translator, source, contextValue string, tones []prompt.Tone, reporter translate.Reporter, seq int) tea.Cmd {
+// translateCmd runs one translation request in a Bubble Tea command and
+// reports its outcome as a resultMsg tagged with seq and the requested tone.
+func translateCmd(ctx context.Context, translator translate.Translator, input translate.TranslationInput, reporter translate.Reporter, seq int) tea.Cmd {
 	return func() tea.Msg {
 		start := time.Now()
-		results, err := translator.TranslateMulti(ctx, source, contextValue, tones, reporter)
-		return resultMsg{seq: seq, results: results, err: err, elapsed: time.Since(start).Seconds()}
+		text, err := translator.Translate(ctx, input, reporter)
+		return resultMsg{seq: seq, tone: input.Tone, text: text, err: err, elapsed: time.Since(start).Seconds()}
 	}
 }
