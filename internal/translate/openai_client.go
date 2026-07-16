@@ -16,7 +16,10 @@ import (
 )
 
 // requestTimeout bounds every Chat Completions request made by OpenAIClient.
-const requestTimeout = 60 * time.Second
+// It is generous on purpose: self-hosted models on a single GPU can be slow
+// when cold, and the interactive UI fires one request per selected tone at
+// once, so several may contend for the same GPU and queue behind each other.
+const requestTimeout = 180 * time.Second
 
 // TranslationInput is the material for one translation request.
 type TranslationInput struct {

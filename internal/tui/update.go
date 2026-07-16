@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/fred01/quick-translate/internal/config"
+	"github.com/fred01/quick-translate/internal/prompt"
 	"github.com/fred01/quick-translate/internal/translate"
 )
 
@@ -45,29 +45,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) updateTranslate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case statusMsg:
-		if msg.seq != m.reqSeq {
-			return m, nil
-		}
-		m.stage = msg.status.Stage
-		return m, nil
-
 	case resultMsg:
 		if msg.seq != m.reqSeq {
 			return m, nil
 		}
-		m.busy = false
-		m.lastElapsed = msg.elapsed
-		if msg.err != nil {
-			m.err = msg.err
-			return m, nil
+		m.results[msg.tone] = toneResult{
+			text:        msg.text,
+			err:         msg.err,
+			outputChars: len([]rune(msg.text)),
+			elapsed:     msg.elapsed,
 		}
-		m.err = nil
-		m.cancelled = false
-		m.resultText = msg.text
-		m.lastOutputChars = len([]rune(msg.text))
-		m.setResultContent()
-		m.result.GotoTop()
+		if m.pending > 0 {
+			m.pending--
+		}
+		if m.pending == 0 {
+			m.busy = false
+		}
+		if msg.tone == m.activeResult {
+			m.syncActiveResult()
+		}
 		return m, nil
 
 	case tea.MouseClickMsg:
@@ -102,7 +98,7 @@ func (m *model) handleKeyTranslate(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			m.cancel()
 			m.busy = false
 			m.cancelled = true
-			m.err = nil
+			m.pending = 0
 		}
 		return nil, true
 	case "tab":
@@ -111,13 +107,27 @@ func (m *model) handleKeyTranslate(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		return m.cycleFocus(-1), true
 	case "left":
 		if m.focus == focusTone {
-			m.cycleTone(-1)
+			m.moveToneCursor(-1)
+			return nil, true
+		}
+		if m.focus == focusResultTabs {
+			m.moveActiveResult(-1)
 			return nil, true
 		}
 		return nil, false
 	case "right":
 		if m.focus == focusTone {
-			m.cycleTone(1)
+			m.moveToneCursor(1)
+			return nil, true
+		}
+		if m.focus == focusResultTabs {
+			m.moveActiveResult(1)
+			return nil, true
+		}
+		return nil, false
+	case "space":
+		if m.focus == focusTone {
+			m.toggleToneAtCursor()
 			return nil, true
 		}
 		return nil, false
@@ -142,33 +152,122 @@ func (m *model) activateFocused() tea.Cmd {
 	switch m.focus {
 	case focusSource, focusContext, focusTone, focusTranslateBtn:
 		return m.submit()
+	case focusClearBtn:
+		return m.clearAll()
 	case focusCopyBtn:
 		return m.copyResult()
 	}
 	return nil
 }
 
-// cycleTone moves the tone selection dir steps through the visual order
-// (Literal, Neutral, Diplomatic), wrapping around at both ends.
-func (m *model) cycleTone(dir int) {
+// clearAll resets the translate screen to a blank slate: it cancels any
+// in-flight batch, empties Source and Context, drops all results, and returns
+// focus to Source. The tone selection and active profile are left untouched.
+func (m *model) clearAll() tea.Cmd {
+	if m.cancel != nil {
+		m.cancel()
+		m.cancel = nil
+	}
+	m.busy = false
+	m.pending = 0
+	m.cancelled = false
+	m.copied = false
+	m.notice = ""
+	m.everSubmitted = false
+	m.source.SetValue("")
+	m.context.SetValue("")
+	m.reqTones = nil
+	m.results = map[prompt.Tone]toneResult{}
+	if tones := m.selectedTonesInOrder(); len(tones) > 0 {
+		m.activeResult = tones[0]
+	} else {
+		m.activeResult = prompt.DefaultTone
+	}
+	m.result.SetContent("")
+	// Reclaim the result-tab row now that there are no variants.
+	if m.width > 0 {
+		m.resize(m.width, m.height)
+	}
+	return m.setFocus(focusSource)
+}
+
+// moveToneCursor moves the tone-checkbox cursor dir steps through the visual
+// order (Literal, Neutral, Diplomatic), wrapping at both ends.
+func (m *model) moveToneCursor(dir int) {
+	m.toneCursor = (m.toneCursor + dir + len(toneOptions)) % len(toneOptions)
+}
+
+// toggleToneAtCursor checks or unchecks the tone the cursor is on.
+func (m *model) toggleToneAtCursor() {
+	tone := toneOptions[m.toneCursor].tone
+	m.toneSelected[tone] = !m.toneSelected[tone]
+}
+
+// selectedTonesInOrder returns the checked tones in display order.
+func (m *model) selectedTonesInOrder() []prompt.Tone {
+	var out []prompt.Tone
+	for _, opt := range toneOptions {
+		if m.toneSelected[opt.tone] {
+			out = append(out, opt.tone)
+		}
+	}
+	return out
+}
+
+// moveActiveResult switches the shown result tab dir steps through reqTones,
+// wrapping at both ends.
+func (m *model) moveActiveResult(dir int) {
+	if len(m.reqTones) == 0 {
+		return
+	}
 	idx := 0
-	for i, opt := range toneOptions {
-		if opt.tone == m.tone {
+	for i, t := range m.reqTones {
+		if t == m.activeResult {
 			idx = i
 			break
 		}
 	}
-	m.tone = toneOptions[(idx+dir+len(toneOptions))%len(toneOptions)].tone
+	m.setActiveResult(m.reqTones[(idx+dir+len(m.reqTones))%len(m.reqTones)])
 }
 
-// submit starts a new translation request, unless one is already active or
-// Source is empty or whitespace-only.
+// setActiveResult shows tone's result in the Translation viewport.
+func (m *model) setActiveResult(tone prompt.Tone) {
+	m.activeResult = tone
+	m.syncActiveResult()
+}
+
+// syncActiveResult loads the active tone's translation into the viewport (or
+// clears it while that tone is still pending or errored) and resets copy state.
+func (m *model) syncActiveResult() {
+	m.copied = false
+	m.setResultContent()
+	m.result.GotoTop()
+}
+
+// activeResultText returns the active tone's successful translation, or "" if
+// it is still pending or failed.
+func (m *model) activeResultText() string {
+	if r, ok := m.results[m.activeResult]; ok && r.err == nil {
+		return r.text
+	}
+	return ""
+}
+
+// submit starts one translation request per selected tone, fired
+// concurrently so all variants come back from a single round of typing. It
+// does nothing when a batch is already running, Source is empty or
+// whitespace-only, or no tone is selected.
 func (m *model) submit() tea.Cmd {
 	if m.busy {
 		return nil
 	}
 	source := m.source.Value()
 	if strings.TrimSpace(source) == "" {
+		return nil
+	}
+	tones := m.selectedTonesInOrder()
+	if len(tones) == 0 {
+		m.notice = "Select at least one tone to translate"
 		return nil
 	}
 
@@ -181,25 +280,36 @@ func (m *model) submit() tea.Cmd {
 	m.cancelled = false
 	m.copied = false
 	m.notice = ""
-	m.err = nil
 	m.everSubmitted = true
-	m.stage = translate.StagePreparing
-	m.requestStarted = time.Now()
 
-	input := translate.TranslationInput{Source: source, Context: m.context.Value(), Tone: m.tone}
-	reporter := &programReporter{program: m.holder.program, seq: seq}
+	m.reqTones = tones
+	m.results = map[prompt.Tone]toneResult{}
+	m.activeResult = tones[0]
+	m.pending = len(tones)
+	m.result.SetContent("")
+	// Recompute pane heights now that the result-tab row may be shown.
+	if m.width > 0 {
+		m.resize(m.width, m.height)
+	}
 
-	return tea.Batch(m.spin.Tick, translateCmd(ctx, m.translator, input, reporter, seq))
+	contextValue := m.context.Value()
+	cmds := []tea.Cmd{m.spin.Tick}
+	for _, tone := range tones {
+		input := translate.TranslationInput{Source: source, Context: contextValue, Tone: tone}
+		cmds = append(cmds, translateCmd(ctx, m.translator, input, translate.DiscardReporter{}, seq))
+	}
+	return tea.Batch(cmds...)
 }
 
-// copyResult copies the current translation to the system clipboard via
-// OSC52. It does nothing when there is no result yet.
+// copyResult copies the active translation to the system clipboard via OSC52.
+// It does nothing when the active tab has no successful result yet.
 func (m *model) copyResult() tea.Cmd {
-	if m.resultText == "" {
+	text := m.activeResultText()
+	if text == "" {
 		return nil
 	}
 	m.copied = true
-	return tea.SetClipboard(m.resultText)
+	return tea.SetClipboard(text)
 }
 
 func (m *model) cycleFocus(dir int) tea.Cmd {
@@ -215,12 +325,16 @@ func (m *model) cycleFocus(dir int) tea.Cmd {
 	return m.setFocus(next)
 }
 
-// focusOrder returns the focusable elements in visual Tab order. Copy is
-// only focusable once a translation exists. Setup and Quit are deliberately
-// excluded — they are mouse-only.
+// focusOrder returns the focusable elements in visual Tab order. The result
+// tabs join only when more than one variant was requested; Copy joins once
+// the active tab has a translation. Setup and Quit are deliberately excluded
+// — they are mouse-only.
 func (m *model) focusOrder() []focusTarget {
-	order := []focusTarget{focusSource, focusContext, focusTone, focusTranslateBtn}
-	if m.resultText != "" {
+	order := []focusTarget{focusSource, focusContext, focusTone, focusTranslateBtn, focusClearBtn}
+	if len(m.reqTones) > 1 {
+		order = append(order, focusResultTabs)
+	}
+	if m.activeResultText() != "" {
 		order = append(order, focusCopyBtn)
 	}
 	return order
@@ -261,9 +375,20 @@ func (m model) handleMouseClickTranslate(msg tea.MouseClickMsg) (tea.Model, tea.
 	if msg.Button != tea.MouseLeft || m.holder == nil {
 		return m, nil
 	}
+	// A click on a result tab switches the shown variant.
+	for i, r := range m.holder.resultTabs {
+		if inRect(r, msg.X, msg.Y) && i < len(m.reqTones) {
+			m.setActiveResult(m.reqTones[i])
+			cmd := m.setFocus(focusResultTabs)
+			return m, cmd
+		}
+	}
 	switch id := hitTest(m.holder.zones, msg.X, msg.Y); id {
 	case btnTranslate:
 		cmd := m.submit()
+		return m, cmd
+	case btnClear:
+		cmd := m.clearAll()
 		return m, cmd
 	case btnCopy:
 		cmd := m.copyResult()
@@ -274,18 +399,20 @@ func (m model) handleMouseClickTranslate(msg tea.MouseClickMsg) (tea.Model, tea.
 	case btnQuit:
 		return m, tea.Quit
 	case btnToneLiteral, btnToneNeutral, btnToneDiplomatic:
-		m.selectToneByButton(id)
+		m.toggleToneByButton(id)
 		cmd := m.setFocus(focusTone)
 		return m, cmd
 	}
 	return m, nil
 }
 
-// selectToneByButton sets the active tone from the clicked chip's button ID.
-func (m *model) selectToneByButton(id buttonID) {
-	for _, opt := range toneOptions {
+// toggleToneByButton checks or unchecks the tone from the clicked chip's
+// button ID and moves the cursor onto it.
+func (m *model) toggleToneByButton(id buttonID) {
+	for i, opt := range toneOptions {
 		if opt.id == id {
-			m.tone = opt.tone
+			m.toneSelected[opt.tone] = !m.toneSelected[opt.tone]
+			m.toneCursor = i
 			return
 		}
 	}
@@ -719,6 +846,11 @@ func (m *model) resize(width, height int) {
 	// fills (and thus scrolls) the screen.
 	const chromeRows = 22
 	available := height - chromeRows - 1
+	// The result-tab row (plus its blank) is shown only when more than one
+	// variant was requested; reserve its two lines so the panes don't overflow.
+	if len(m.reqTones) > 1 {
+		available -= 2
+	}
 	if available < 6 {
 		available = 6
 	}
@@ -746,19 +878,23 @@ func (m *model) resize(width, height int) {
 	}
 }
 
-// setResultContent word-wraps the current translation to the viewport width
-// (CSS-style: break at spaces, split a token only when it alone exceeds the
-// width) and loads it into the read-only Translation viewport.
+// setResultContent word-wraps the active tab's translation to the viewport
+// width (CSS-style: break at spaces, split a token only when it alone exceeds
+// the width) and loads it into the read-only Translation viewport. While the
+// active tab is still pending or has failed, the viewport is cleared and the
+// status line conveys its state instead.
 func (m *model) setResultContent() {
-	if m.resultText == "" {
+	text := m.activeResultText()
+	if text == "" {
+		m.result.SetContent("")
 		return
 	}
 	width := m.result.Width()
 	if width < 1 {
 		// The viewport has no size yet; store the text unwrapped. The
 		// WindowSizeMsg that precedes the first real render will re-wrap it.
-		m.result.SetContent(m.resultText)
+		m.result.SetContent(text)
 		return
 	}
-	m.result.SetContent(ansi.Wrap(m.resultText, width, ""))
+	m.result.SetContent(ansi.Wrap(text, width, ""))
 }

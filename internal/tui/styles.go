@@ -17,28 +17,34 @@ var (
 	styleButtonFocused  = lipgloss.NewStyle().Padding(0, 1).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("6")).Bold(true)
 	styleButtonDisabled = lipgloss.NewStyle().Padding(0, 1).Foreground(lipgloss.Color("240")).Background(lipgloss.Color("236"))
 
-	// Tone selector chips: the selected chip carries a background; unselected
-	// chips are plain text. The row focused/blurred distinction brightens the
-	// selected chip (and slightly brightens unselected ones) when the tone row
-	// holds focus, so keyboard users can see it is active.
-	styleToneSelected        = lipgloss.NewStyle().Padding(0, 1).Foreground(lipgloss.Color("15")).Background(lipgloss.Color("238"))
-	styleToneSelectedFocused = lipgloss.NewStyle().Padding(0, 1).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("6")).Bold(true)
-	styleToneChip            = lipgloss.NewStyle().Padding(0, 1).Foreground(lipgloss.Color("245"))
-	styleToneChipFocused     = lipgloss.NewStyle().Padding(0, 1).Foreground(lipgloss.Color("252"))
+	// Tone checkboxes: the "[x]"/"[ ]" glyph carries the checked state, so a
+	// checked box is shown in normal text and an unchecked one is faint. The
+	// cursor (the box under keyboard focus) gets the focused-button background
+	// regardless of its checked state.
+	styleToneChecked   = lipgloss.NewStyle().Padding(0, 1).Foreground(lipgloss.Color("15"))
+	styleToneUnchecked = lipgloss.NewStyle().Padding(0, 1).Foreground(lipgloss.Color("245"))
+
+	// styleTabActive marks the active result tab when the tab row is not
+	// focused (a background without the focused-button's bold cyan).
+	styleTabActive = lipgloss.NewStyle().Padding(0, 1).Foreground(lipgloss.Color("15")).Background(lipgloss.Color("238"))
 )
 
-// renderToneChip renders one tone option. selected marks the active tone;
-// rowFocused marks whether the tone selector currently holds keyboard focus.
-func renderToneChip(label string, selected, rowFocused bool) string {
+// renderToneCheckbox renders one tone option as a checkbox. checked reflects
+// whether the tone is selected; cursor marks whether the tone row holds focus
+// with this box under the cursor.
+func renderToneCheckbox(label string, checked, cursor bool) string {
+	mark := "[ ] "
+	if checked {
+		mark = "[x] "
+	}
+	s := mark + label
 	switch {
-	case selected && rowFocused:
-		return styleToneSelectedFocused.Render(label)
-	case selected:
-		return styleToneSelected.Render(label)
-	case rowFocused:
-		return styleToneChipFocused.Render(label)
+	case cursor:
+		return styleButtonFocused.Render(s)
+	case checked:
+		return styleToneChecked.Render(s)
 	default:
-		return styleToneChip.Render(label)
+		return styleToneUnchecked.Render(s)
 	}
 }
 

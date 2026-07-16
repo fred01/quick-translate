@@ -228,14 +228,14 @@ func TestSuccessUpdatesTranslationAndStatus(t *testing.T) {
 	if m.busy {
 		t.Fatal("busy must be false after a successful result")
 	}
-	if m.err != nil {
-		t.Fatalf("err = %v, want nil", m.err)
+	if r := m.results[m.activeResult]; r.err != nil {
+		t.Fatalf("active result err = %v, want nil", r.err)
 	}
 	if got := m.result.GetContent(); got != "Yes, I finished it yesterday." {
 		t.Fatalf("Translation content = %q", got)
 	}
-	if m.lastOutputChars != len([]rune("Yes, I finished it yesterday.")) {
-		t.Fatalf("lastOutputChars = %d", m.lastOutputChars)
+	if got := m.results[m.activeResult].outputChars; got != len([]rune("Yes, I finished it yesterday.")) {
+		t.Fatalf("active result outputChars = %d", got)
 	}
 }
 
@@ -256,8 +256,8 @@ func TestErrorPreservesInputs(t *testing.T) {
 	if m.busy {
 		t.Fatal("busy must be false after a failed result")
 	}
-	if m.err == nil {
-		t.Fatal("err must be set after a failed result")
+	if r := m.results[m.activeResult]; r.err == nil {
+		t.Fatal("active result err must be set after a failed result")
 	}
 	if m.source.Value() != "Да, закончил вчера" {
 		t.Fatalf("Source = %q, want preserved", m.source.Value())

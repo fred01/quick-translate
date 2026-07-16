@@ -48,6 +48,8 @@ const (
 	focusContext
 	focusTone
 	focusTranslateBtn
+	focusClearBtn
+	focusResultTabs
 	focusCopyBtn
 )
 
@@ -69,6 +71,7 @@ const (
 	btnNone buttonID = iota
 	// Translate screen.
 	btnTranslate
+	btnClear
 	btnCopy
 	btnSetup
 	btnQuit
@@ -100,9 +103,18 @@ type rect struct {
 // the next update — safe because Bubble Tea runs Update and View
 // sequentially on one goroutine.
 type programHolder struct {
-	program *tea.Program
-	zones   map[buttonID]rect
-	rows    []rect // profile-list row hit-boxes, indexed like the list
+	program    *tea.Program
+	zones      map[buttonID]rect
+	rows       []rect // profile-list row hit-boxes, indexed like the list
+	resultTabs []rect // result-tab hit-boxes, indexed like reqTones
+}
+
+// toneResult is one tone's completed outcome within a batch.
+type toneResult struct {
+	text        string
+	err         error
+	outputChars int
+	elapsed     float64 // seconds
 }
 
 // model is the Bubble Tea model backing the interactive UI.
@@ -127,25 +139,34 @@ type model struct {
 	result  viewport.Model
 	spin    spinner.Model
 	focus   focusTarget
-	tone    prompt.Tone
 	initCmd tea.Cmd
+
+	// Tone selection. toneSelected is the set of tones checked for the next
+	// translation; toneCursor is the checkbox highlighted while the tone row
+	// holds focus.
+	toneSelected map[prompt.Tone]bool
+	toneCursor   int
 
 	width, height     int
 	keyDisambiguation bool
 
-	everSubmitted   bool
-	busy            bool
-	cancelled       bool
-	copied          bool
-	notice          string
-	stage           translate.Stage
-	requestStarted  time.Time
-	resultText      string
-	lastOutputChars int
-	lastElapsed     float64
-	err             error
-	cancel          context.CancelFunc
-	reqSeq          int
+	everSubmitted bool
+	busy          bool
+	cancelled     bool
+	copied        bool
+	notice        string
+
+	// Results of the most recent batch. reqTones lists the requested tones in
+	// display order (the result-tab buttons); results holds each tone's
+	// outcome as it arrives; activeResult is the tab currently shown in the
+	// Translation viewport; pending counts requests still in flight.
+	reqTones     []prompt.Tone
+	results      map[prompt.Tone]toneResult
+	activeResult prompt.Tone
+	pending      int
+
+	cancel context.CancelFunc
+	reqSeq int
 
 	// Profile manager.
 	setupMode   setupMode
@@ -192,19 +213,22 @@ func newModel(translator translate.Translator, modelName, host string) model {
 	keyIn.Placeholder = "leave blank to keep the current key"
 
 	return model{
-		translator:  translator,
-		modelName:   modelName,
-		host:        host,
-		holder:      &programHolder{},
-		screen:      screenTranslate,
-		source:      source,
-		context:     ctx,
-		result:      result,
-		spin:        sp,
-		focus:       focusSource,
-		tone:        prompt.DefaultTone,
-		initCmd:     focusCmd,
-		setupInputs: [4]textinput.Model{nameIn, baseIn, modelIn, keyIn},
+		translator:   translator,
+		modelName:    modelName,
+		host:         host,
+		holder:       &programHolder{},
+		screen:       screenTranslate,
+		source:       source,
+		context:      ctx,
+		result:       result,
+		spin:         sp,
+		focus:        focusSource,
+		toneSelected: map[prompt.Tone]bool{prompt.DefaultTone: true},
+		toneCursor:   toneIndex(prompt.DefaultTone),
+		results:      map[prompt.Tone]toneResult{},
+		activeResult: prompt.DefaultTone,
+		initCmd:      focusCmd,
+		setupInputs:  [4]textinput.Model{nameIn, baseIn, modelIn, keyIn},
 	}
 }
 
@@ -245,7 +269,9 @@ func Run(
 	m.newTranslator = newTranslator
 	m.store = store
 	m.activeName = name
-	m.tone = initialTone
+	m.toneSelected = map[prompt.Tone]bool{initialTone: true}
+	m.toneCursor = toneIndex(initialTone)
+	m.activeResult = initialTone
 
 	program := tea.NewProgram(m, tea.WithInput(in), tea.WithOutput(out))
 	m.holder.program = program
@@ -260,11 +286,11 @@ func Run(
 }
 
 // translateCmd runs one translation request in a Bubble Tea command and
-// reports its outcome as a resultMsg tagged with seq.
+// reports its outcome as a resultMsg tagged with seq and the requested tone.
 func translateCmd(ctx context.Context, translator translate.Translator, input translate.TranslationInput, reporter translate.Reporter, seq int) tea.Cmd {
 	return func() tea.Msg {
 		start := time.Now()
 		text, err := translator.Translate(ctx, input, reporter)
-		return resultMsg{seq: seq, text: text, err: err, elapsed: time.Since(start).Seconds()}
+		return resultMsg{seq: seq, tone: input.Tone, text: text, err: err, elapsed: time.Since(start).Seconds()}
 	}
 }
