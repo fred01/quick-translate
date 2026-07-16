@@ -132,7 +132,7 @@ func TestTextFlagPreventsStdinRead(t *testing.T) {
 	}
 }
 
-func TestToneFlagDefaultsToNeutral(t *testing.T) {
+func TestToneFlagDefaultsToDiplomatic(t *testing.T) {
 	h := newHarness(t)
 	root := NewRootCommand(h.Deps())
 	root.SetArgs([]string{"--text", "hello"})
@@ -140,8 +140,11 @@ func TestToneFlagDefaultsToNeutral(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatalf("Execute() error: %v", err)
 	}
-	if h.Translator.lastInput.Tone != prompt.ToneNeutral {
-		t.Fatalf("default tone = %v, want ToneNeutral", h.Translator.lastInput.Tone)
+	if h.Translator.lastInput.Tone != prompt.DefaultTone {
+		t.Fatalf("default tone = %v, want DefaultTone (%v)", h.Translator.lastInput.Tone, prompt.DefaultTone)
+	}
+	if prompt.DefaultTone != prompt.ToneDiplomatic {
+		t.Fatalf("DefaultTone = %v, want ToneDiplomatic", prompt.DefaultTone)
 	}
 }
 

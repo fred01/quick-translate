@@ -591,18 +591,19 @@ func focusButton(t *testing.T, m model, target focusTarget) model {
 
 // --- Tone selector ---
 
-func TestToneDefaultsToNeutral(t *testing.T) {
+func TestToneDefaultsToDiplomatic(t *testing.T) {
 	m := newTestModel(&fakeTranslator{})
-	if m.tone != prompt.ToneNeutral {
-		t.Fatalf("default tone = %v, want ToneNeutral", m.tone)
+	if m.tone != prompt.DefaultTone {
+		t.Fatalf("default tone = %v, want DefaultTone (%v)", m.tone, prompt.DefaultTone)
 	}
 }
 
 func TestToneLeftRightCyclesWhenFocused(t *testing.T) {
 	m := newTestModel(&fakeTranslator{})
 	m = focusButton(t, m, focusTone)
+	m.tone = prompt.ToneNeutral // start from a known point independent of the default
 
-	// Visual order is Literal, Neutral, Diplomatic; the default is Neutral.
+	// Visual order is Literal, Neutral, Diplomatic.
 	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyRight})
 	if m.tone != prompt.ToneDiplomatic {
 		t.Fatalf("Right from Neutral = %v, want Diplomatic", m.tone)
@@ -622,8 +623,9 @@ func TestToneArrowsIgnoredWhenSourceFocused(t *testing.T) {
 	if m.focus != focusSource {
 		t.Fatal("expected Source focused initially")
 	}
+	before := m.tone
 	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyRight})
-	if m.tone != prompt.ToneNeutral {
+	if m.tone != before {
 		t.Fatalf("Right while Source is focused must not change tone, got %v", m.tone)
 	}
 }
@@ -665,6 +667,7 @@ func TestSubmitSendsSelectedTone(t *testing.T) {
 	m := newTestModel(rec)
 	m.source.SetValue("hello")
 	m = focusButton(t, m, focusTone)
+	m.tone = prompt.ToneNeutral
 	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyRight}) // Neutral -> Diplomatic
 
 	_, cmd := update(m, tea.KeyPressMsg{Code: tea.KeyEnter})

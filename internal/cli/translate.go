@@ -30,7 +30,7 @@ func addTranslationFlags(cmd *cobra.Command, opts *TranslationOptions) {
 	cmd.Flags().StringVar(&opts.Text, "text", "", "text to translate; omit to read stdin or launch the interactive UI")
 	cmd.Flags().StringVar(&opts.Context, "context", "", "optional reference context used only to disambiguate the translation")
 	cmd.Flags().StringVar(&opts.Profile, "profile", "", "profile to use for this translation (defaults to the active profile)")
-	cmd.Flags().StringVar(&opts.Tone, "tone", "neutral", "translation tone: neutral, literal, or diplomatic")
+	cmd.Flags().StringVar(&opts.Tone, "tone", prompt.DefaultTone.String(), "translation tone: neutral, literal, or diplomatic")
 }
 
 func newTranslateCommand(deps app.Dependencies) *cobra.Command {

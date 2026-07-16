@@ -12,10 +12,11 @@ import (
 type Tone int
 
 const (
-	// ToneNeutral is the default: clear, polished, professional business
-	// English with slang, irritation, and strong wording softened. It is the
-	// zero value, so callers that do not set a tone get the historical
-	// behavior unchanged.
+	// ToneNeutral is clear, polished, professional business English with
+	// slang, irritation, and strong wording softened. It is the zero value
+	// and adds no tone-specific instructions, so Build with ToneNeutral
+	// reproduces the historical prompt byte-for-byte. Note this is the zero
+	// value, not the user-facing default; see DefaultTone.
 	ToneNeutral Tone = iota
 	// ToneLiteral stays as close to the source's exact wording, phrasing, and
 	// register as grammatical English allows, preserving directness and
@@ -25,6 +26,11 @@ const (
 	// possible, reframing complaints and refusals into considerate wording.
 	ToneDiplomatic
 )
+
+// DefaultTone is the tone applied when the user does not choose one. It is
+// deliberately the most courteous option, so unattended translations lean
+// polite rather than blunt.
+const DefaultTone = ToneDiplomatic
 
 // String returns the lowercase canonical name of the tone.
 func (t Tone) String() string {

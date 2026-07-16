@@ -142,17 +142,18 @@ source's register is rendered:
 | Tone         | Behavior                                                                 |
 | ------------ | ------------------------------------------------------------------------ |
 | `literal`    | Stays as close to the source's wording, directness, and emotional intensity as grammatical English allows. |
-| `neutral`    | The default. Clear, polished, professional business English, with slang and strong wording softened. |
-| `diplomatic` | Maximally courteous and tactful; reframes complaints and refusals into considerate wording. |
+| `neutral`    | Clear, polished, professional business English, with slang and strong wording softened. |
+| `diplomatic` | The default. Maximally courteous and tactful; reframes complaints and refusals into considerate wording. |
 
 ```sh
-qt --tone literal    --text "Опять сборка упала из-за твоего коммита."
-qt --tone diplomatic --text "Опять сборка упала из-за твоего коммита."
+qt --tone literal --text "Опять сборка упала из-за твоего коммита."
+qt --tone neutral --text "Опять сборка упала из-за твоего коммита."
 ```
 
 The meaning, facts, and the essential point are preserved in every tone;
-only the register changes. Omitting `--tone` is exactly equivalent to
-`--tone neutral`.
+only the register changes. `diplomatic` is the default, so omitting `--tone`
+leans polite; pass `--tone neutral` or `--tone literal` for a plainer or
+closer rendering.
 
 ### Interactive mode
 

@@ -202,6 +202,7 @@ func newModel(translator translate.Translator, modelName, host string) model {
 		result:      result,
 		spin:        sp,
 		focus:       focusSource,
+		tone:        prompt.DefaultTone,
 		initCmd:     focusCmd,
 		setupInputs: [4]textinput.Model{nameIn, baseIn, modelIn, keyIn},
 	}

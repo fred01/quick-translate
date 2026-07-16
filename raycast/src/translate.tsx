@@ -28,7 +28,17 @@ interface FormValues {
   source: string;
   context: string;
   profile: string;
+  tone: string;
 }
+
+// Tone options mirror qt's --tone flag. Diplomatic is the default, matching
+// the CLI, so unattended translations lean polite rather than blunt.
+const TONES = [
+  { value: "diplomatic", title: "Diplomatic — most courteous" },
+  { value: "neutral", title: "Neutral — polished business English" },
+  { value: "literal", title: "Literal — closest to the source" },
+];
+const DEFAULT_TONE = "diplomatic";
 
 function loadProfiles(): { names: string[]; active: string } {
   try {
@@ -76,6 +86,7 @@ export default function Command() {
 
     const args = ["--quiet"];
     if (values.profile) args.push("--profile", values.profile);
+    if (values.tone) args.push("--tone", values.tone);
     const ctx = (values.context ?? "").trim();
     if (ctx) args.push("--context", ctx);
     args.push("--text", text);
@@ -111,6 +122,11 @@ export default function Command() {
     >
       <Form.TextArea id="source" title="Russian" placeholder="Введите русский текст…" autoFocus />
       <Form.TextArea id="context" title="Context" placeholder="Optional context to disambiguate the translation" />
+      <Form.Dropdown id="tone" title="Tone" defaultValue={DEFAULT_TONE}>
+        {TONES.map((t) => (
+          <Form.Dropdown.Item key={t.value} value={t.value} title={t.title} />
+        ))}
+      </Form.Dropdown>
       {names.length > 0 ? (
         <Form.Dropdown id="profile" title="Profile" defaultValue={preselected}>
           {names.map((n) => (
