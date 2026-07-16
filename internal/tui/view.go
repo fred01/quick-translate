@@ -9,8 +9,22 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/fred01/quick-translate/internal/prompt"
 	"github.com/fred01/quick-translate/internal/translate"
 )
+
+// toneOptions is the left-to-right order, labels, and hit-test IDs of the tone
+// selector. It is the single source of truth shared by the renderer, the
+// keyboard cycler, and the mouse handler.
+var toneOptions = []struct {
+	tone  prompt.Tone
+	id    buttonID
+	label string
+}{
+	{prompt.ToneLiteral, btnToneLiteral, "Literal"},
+	{prompt.ToneNeutral, btnToneNeutral, "Neutral"},
+	{prompt.ToneDiplomatic, btnToneDiplomatic, "Diplomatic"},
+}
 
 // View implements tea.Model. It renders the current screen and records the
 // rendered hit-boxes into the shared holder so the mouse handler can resolve
@@ -78,6 +92,13 @@ func (m model) buildTranslateView() (string, map[buttonID]rect) {
 	lines = appendLines(lines, m.box(m.context.View(), m.focus == focusContext))
 	lines = appendLines(lines, "")
 
+	toneRow, toneZones := m.renderToneSelector(len(lines))
+	for id, r := range toneZones {
+		zones[id] = r
+	}
+	lines = appendLines(lines, toneRow)
+	lines = appendLines(lines, "")
+
 	lines = appendLines(lines, " "+styleLabel.Render("Source"))
 	lines = appendLines(lines, m.box(m.source.View(), m.focus == focusSource))
 	lines = appendLines(lines, "")
@@ -104,6 +125,31 @@ func (m model) buildTranslateView() (string, map[buttonID]rect) {
 	lines = appendLines(lines, m.helpLine())
 
 	return strings.Join(lines, "\n"), zones
+}
+
+// renderToneSelector renders the "Tone" label and the three tone chips on a
+// single line at row y, returning that line and the chip hit-boxes.
+func (m model) renderToneSelector(y int) (string, map[buttonID]rect) {
+	zones := map[buttonID]rect{}
+	focused := m.focus == focusTone
+
+	label := " " + styleLabel.Render("Tone")
+	var b strings.Builder
+	b.WriteString(label)
+	b.WriteString("  ")
+	x := lipgloss.Width(label) + 2
+	for i, opt := range toneOptions {
+		chip := renderToneChip(opt.label, m.tone == opt.tone, focused)
+		w := lipgloss.Width(chip)
+		zones[opt.id] = rect{x0: x, y0: y, x1: x + w - 1, y1: y}
+		b.WriteString(chip)
+		x += w
+		if i < len(toneOptions)-1 {
+			b.WriteString(" ")
+			x++
+		}
+	}
+	return b.String(), zones
 }
 
 func (m model) renderHeader() (string, map[buttonID]rect) {
@@ -184,7 +230,7 @@ func (m model) helpLine() string {
 	if m.keyDisambiguation {
 		newlineHelp = "Shift+Enter newline"
 	}
-	return styleHelp.Render(fmt.Sprintf(" Enter translate · %s · Tab field · Ctrl+C quit", newlineHelp))
+	return styleHelp.Render(fmt.Sprintf(" Enter translate · %s · Tab field · ←→ tone · Ctrl+C quit", newlineHelp))
 }
 
 // --- Profile manager: list mode ---

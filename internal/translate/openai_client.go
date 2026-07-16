@@ -22,6 +22,7 @@ const requestTimeout = 60 * time.Second
 type TranslationInput struct {
 	Source  string
 	Context string
+	Tone    prompt.Tone
 }
 
 // Translator turns Russian source text into English, optionally informed by
@@ -72,7 +73,7 @@ func SafeHost(baseURL string) string {
 func (c *OpenAIClient) Translate(ctx context.Context, input TranslationInput, reporter Reporter) (string, error) {
 	reporter.Report(Status{Stage: StagePreparing, Host: c.host, Model: c.model})
 
-	builtPrompt := prompt.Build(input.Source, input.Context)
+	builtPrompt := prompt.Build(input.Source, input.Context, input.Tone)
 	inputChars := len([]rune(input.Source))
 
 	start := time.Now()

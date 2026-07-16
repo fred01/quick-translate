@@ -134,14 +134,37 @@ qt --context "Did you finish the report?" --text "Да, закончил вче�
 # Yes, I finished it yesterday.
 ```
 
+### Tone
+
+An optional `--tone` selects how faithfully versus how diplomatically the
+source's register is rendered:
+
+| Tone         | Behavior                                                                 |
+| ------------ | ------------------------------------------------------------------------ |
+| `literal`    | Stays as close to the source's wording, directness, and emotional intensity as grammatical English allows. |
+| `neutral`    | The default. Clear, polished, professional business English, with slang and strong wording softened. |
+| `diplomatic` | Maximally courteous and tactful; reframes complaints and refusals into considerate wording. |
+
+```sh
+qt --tone literal    --text "Опять сборка упала из-за твоего коммита."
+qt --tone diplomatic --text "Опять сборка упала из-за твоего коммита."
+```
+
+The meaning, facts, and the essential point are preserved in every tone;
+only the register changes. Omitting `--tone` is exactly equivalent to
+`--tone neutral`.
+
 ### Interactive mode
 
 Running `qt` with no `--text` in a real terminal (stdin and stdout both
 terminals) launches an interactive UI with Context, Source, and Translation
-panes, plus clickable **Translate**, **Copy**, and **Setup** buttons. Long
-translations wrap at word boundaries. The **Setup** button opens the profile
-manager in place, so you can switch the active profile or edit profiles
-without leaving the UI.
+panes, a **Tone** selector, plus clickable **Translate**, **Copy**, and
+**Setup** buttons. Long translations wrap at word boundaries. The **Tone**
+selector (three chips above Source: Literal, Neutral, Diplomatic) is
+reachable with `Tab` and switched with `←`/`→` or a mouse click; `--tone`
+sets which chip is highlighted when the UI opens. The **Setup** button opens
+the profile manager in place, so you can switch the active profile or edit
+profiles without leaving the UI.
 
 An explicit `translate` subcommand is also available and behaves
 identically to the root command: `qt translate --text "..."`.
@@ -150,7 +173,8 @@ identically to the root command: `qt translate --text "..."`.
 
 | Key                        | Action                                     |
 | --------------------------- | ------------------------------------------- |
-| `Tab` / `Shift+Tab`         | Move focus (Source, Context, and buttons)   |
+| `Tab` / `Shift+Tab`         | Move focus (Source, Context, Tone, and buttons) |
+| `←` / `→`                   | Change the Tone selection (when Tone is focused) |
 | `Enter`                     | Activate the focused element (e.g. Translate) |
 | `Shift+Enter`                | Insert a newline (modern terminals only)   |
 | `Alt+Enter`                  | Insert a newline (always works)            |

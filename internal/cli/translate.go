@@ -10,6 +10,7 @@ import (
 
 	"github.com/fred01/quick-translate/internal/app"
 	"github.com/fred01/quick-translate/internal/config"
+	"github.com/fred01/quick-translate/internal/prompt"
 	"github.com/fred01/quick-translate/internal/translate"
 )
 
@@ -19,6 +20,7 @@ type TranslationOptions struct {
 	Text    string
 	Context string
 	Profile string
+	Tone    string
 }
 
 // addTranslationFlags registers the translation flags shared by the root
@@ -28,6 +30,7 @@ func addTranslationFlags(cmd *cobra.Command, opts *TranslationOptions) {
 	cmd.Flags().StringVar(&opts.Text, "text", "", "text to translate; omit to read stdin or launch the interactive UI")
 	cmd.Flags().StringVar(&opts.Context, "context", "", "optional reference context used only to disambiguate the translation")
 	cmd.Flags().StringVar(&opts.Profile, "profile", "", "profile to use for this translation (defaults to the active profile)")
+	cmd.Flags().StringVar(&opts.Tone, "tone", "neutral", "translation tone: neutral, literal, or diplomatic")
 }
 
 func newTranslateCommand(deps app.Dependencies) *cobra.Command {
@@ -57,23 +60,28 @@ func newTranslateCommand(deps app.Dependencies) *cobra.Command {
 func runTranslation(cmd *cobra.Command, opts TranslationOptions, deps app.Dependencies) error {
 	quiet, _ := cmd.Flags().GetBool("quiet")
 
+	tone, err := prompt.ParseTone(opts.Tone)
+	if err != nil {
+		return fail(deps, err)
+	}
+
 	switch {
 	case cmd.Flags().Changed("text"):
-		return runBatchTranslation(cmd, opts, opts.Text, quiet, deps)
+		return runBatchTranslation(cmd, opts, opts.Text, tone, quiet, deps)
 	case !deps.StdinIsTerminal():
 		data, err := io.ReadAll(deps.Stdin)
 		if err != nil {
 			return fail(deps, fmt.Errorf("read stdin: %w", err))
 		}
-		return runBatchTranslation(cmd, opts, string(data), quiet, deps)
+		return runBatchTranslation(cmd, opts, string(data), tone, quiet, deps)
 	case deps.StdoutIsTerminal():
-		return runInteractive(opts, deps)
+		return runInteractive(opts, tone, deps)
 	default:
 		return fail(deps, errors.New("interactive mode requires terminal output; use --text or pipe source text to stdin"))
 	}
 }
 
-func runBatchTranslation(cmd *cobra.Command, opts TranslationOptions, text string, quiet bool, deps app.Dependencies) error {
+func runBatchTranslation(cmd *cobra.Command, opts TranslationOptions, text string, tone prompt.Tone, quiet bool, deps app.Dependencies) error {
 	if strings.TrimSpace(text) == "" {
 		return fail(deps, errors.New("source text must not be empty"))
 	}
@@ -89,7 +97,7 @@ func runBatchTranslation(cmd *cobra.Command, opts TranslationOptions, text strin
 	}
 
 	reporter := translate.BatchReporter{Writer: deps.Stderr, Quiet: quiet}
-	input := translate.TranslationInput{Source: text, Context: opts.Context}
+	input := translate.TranslationInput{Source: text, Context: opts.Context, Tone: tone}
 	result, err := translator.Translate(cmd.Context(), input, reporter)
 	if err != nil {
 		// The reporter has already written a safe failure line to stderr.
@@ -100,14 +108,14 @@ func runBatchTranslation(cmd *cobra.Command, opts TranslationOptions, text strin
 	return nil
 }
 
-func runInteractive(opts TranslationOptions, deps app.Dependencies) error {
+func runInteractive(opts TranslationOptions, tone prompt.Tone, deps app.Dependencies) error {
 	// Validate up front so an unconfigured or bad profile fails with a clear
 	// message instead of launching an empty UI.
 	if _, _, err := config.Effective(deps.ConfigPath, deps.Getenv, opts.Profile); err != nil {
 		return fail(deps, fmt.Errorf("configuration error: %w (run \"qt setup\")", err))
 	}
 
-	err := deps.RunTUI(deps.Stdin, deps.Stdout, deps.ConfigPath, deps.Getenv, deps.NewTranslator, opts.Profile)
+	err := deps.RunTUI(deps.Stdin, deps.Stdout, deps.ConfigPath, deps.Getenv, deps.NewTranslator, opts.Profile, tone)
 	if err != nil {
 		if errors.Is(err, app.ErrInterrupted) {
 			return err

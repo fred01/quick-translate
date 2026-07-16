@@ -126,7 +126,7 @@ func TestTranslateRequestShape(t *testing.T) {
 	if captured.Body.Messages[0].Role != "user" {
 		t.Fatalf("Messages[0].Role = %q, want user", captured.Body.Messages[0].Role)
 	}
-	wantPrompt := prompt.Build(input.Source, input.Context)
+	wantPrompt := prompt.Build(input.Source, input.Context, input.Tone)
 	if captured.Body.Messages[0].Content != wantPrompt {
 		t.Fatalf("Messages[0].Content mismatch\n--- got ---\n%s\n--- want ---\n%s", captured.Body.Messages[0].Content, wantPrompt)
 	}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/fred01/quick-translate/internal/app"
 	"github.com/fred01/quick-translate/internal/config"
+	"github.com/fred01/quick-translate/internal/prompt"
 	"github.com/fred01/quick-translate/internal/translate"
 )
 
@@ -53,6 +54,7 @@ type harness struct {
 	TUIModel   string
 	TUIHost    string
 	TUIProfile string
+	TUITone    prompt.Tone
 
 	SetupFormCalls  int
 	SetupFormErr    error
@@ -100,9 +102,10 @@ func (h *harness) Deps() app.Dependencies {
 			return h.Translator, nil
 		},
 
-		RunTUI: func(in io.Reader, out io.Writer, configPath string, getenv config.EnvLookup, newTranslator func(config.Config) (translate.Translator, error), profile string) error {
+		RunTUI: func(in io.Reader, out io.Writer, configPath string, getenv config.EnvLookup, newTranslator func(config.Config) (translate.Translator, error), profile string, tone prompt.Tone) error {
 			h.TUICalls++
 			h.TUIProfile = profile
+			h.TUITone = tone
 			if cfg, _, err := config.Effective(configPath, getenv, profile); err == nil {
 				h.TUIModel = cfg.Model
 				h.TUIHost = translate.SafeHost(cfg.BaseURL)

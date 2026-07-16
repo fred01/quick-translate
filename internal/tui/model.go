@@ -20,6 +20,7 @@ import (
 
 	"github.com/fred01/quick-translate/internal/app"
 	"github.com/fred01/quick-translate/internal/config"
+	"github.com/fred01/quick-translate/internal/prompt"
 	"github.com/fred01/quick-translate/internal/translate"
 )
 
@@ -45,6 +46,7 @@ type focusTarget int
 const (
 	focusSource focusTarget = iota
 	focusContext
+	focusTone
 	focusTranslateBtn
 	focusCopyBtn
 )
@@ -70,6 +72,10 @@ const (
 	btnCopy
 	btnSetup
 	btnQuit
+	// Tone selector (translate screen).
+	btnToneLiteral
+	btnToneNeutral
+	btnToneDiplomatic
 	// Profile-manager list mode.
 	btnUse
 	btnAdd
@@ -121,6 +127,7 @@ type model struct {
 	result  viewport.Model
 	spin    spinner.Model
 	focus   focusTarget
+	tone    prompt.Tone
 	initCmd tea.Cmd
 
 	width, height     int
@@ -216,6 +223,7 @@ func Run(
 	getenv config.EnvLookup,
 	newTranslator func(config.Config) (translate.Translator, error),
 	profileOverride string,
+	initialTone prompt.Tone,
 ) error {
 	store, err := config.LoadStore(configPath)
 	if err != nil {
@@ -236,6 +244,7 @@ func Run(
 	m.newTranslator = newTranslator
 	m.store = store
 	m.activeName = name
+	m.tone = initialTone
 
 	program := tea.NewProgram(m, tea.WithInput(in), tea.WithOutput(out))
 	m.holder.program = program

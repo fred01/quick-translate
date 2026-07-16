@@ -109,6 +109,18 @@ func (m *model) handleKeyTranslate(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		return m.cycleFocus(1), true
 	case "shift+tab":
 		return m.cycleFocus(-1), true
+	case "left":
+		if m.focus == focusTone {
+			m.cycleTone(-1)
+			return nil, true
+		}
+		return nil, false
+	case "right":
+		if m.focus == focusTone {
+			m.cycleTone(1)
+			return nil, true
+		}
+		return nil, false
 	case "pgup":
 		m.result.PageUp()
 		return nil, true
@@ -128,12 +140,25 @@ func (m *model) handleKeyTranslate(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 
 func (m *model) activateFocused() tea.Cmd {
 	switch m.focus {
-	case focusSource, focusContext, focusTranslateBtn:
+	case focusSource, focusContext, focusTone, focusTranslateBtn:
 		return m.submit()
 	case focusCopyBtn:
 		return m.copyResult()
 	}
 	return nil
+}
+
+// cycleTone moves the tone selection dir steps through the visual order
+// (Literal, Neutral, Diplomatic), wrapping around at both ends.
+func (m *model) cycleTone(dir int) {
+	idx := 0
+	for i, opt := range toneOptions {
+		if opt.tone == m.tone {
+			idx = i
+			break
+		}
+	}
+	m.tone = toneOptions[(idx+dir+len(toneOptions))%len(toneOptions)].tone
 }
 
 // submit starts a new translation request, unless one is already active or
@@ -161,7 +186,7 @@ func (m *model) submit() tea.Cmd {
 	m.stage = translate.StagePreparing
 	m.requestStarted = time.Now()
 
-	input := translate.TranslationInput{Source: source, Context: m.context.Value()}
+	input := translate.TranslationInput{Source: source, Context: m.context.Value(), Tone: m.tone}
 	reporter := &programReporter{program: m.holder.program, seq: seq}
 
 	return tea.Batch(m.spin.Tick, translateCmd(ctx, m.translator, input, reporter, seq))
@@ -194,7 +219,7 @@ func (m *model) cycleFocus(dir int) tea.Cmd {
 // only focusable once a translation exists. Setup and Quit are deliberately
 // excluded — they are mouse-only.
 func (m *model) focusOrder() []focusTarget {
-	order := []focusTarget{focusSource, focusContext, focusTranslateBtn}
+	order := []focusTarget{focusSource, focusContext, focusTone, focusTranslateBtn}
 	if m.resultText != "" {
 		order = append(order, focusCopyBtn)
 	}
@@ -236,7 +261,7 @@ func (m model) handleMouseClickTranslate(msg tea.MouseClickMsg) (tea.Model, tea.
 	if msg.Button != tea.MouseLeft || m.holder == nil {
 		return m, nil
 	}
-	switch hitTest(m.holder.zones, msg.X, msg.Y) {
+	switch id := hitTest(m.holder.zones, msg.X, msg.Y); id {
 	case btnTranslate:
 		cmd := m.submit()
 		return m, cmd
@@ -248,8 +273,22 @@ func (m model) handleMouseClickTranslate(msg tea.MouseClickMsg) (tea.Model, tea.
 		return m, cmd
 	case btnQuit:
 		return m, tea.Quit
+	case btnToneLiteral, btnToneNeutral, btnToneDiplomatic:
+		m.selectToneByButton(id)
+		cmd := m.setFocus(focusTone)
+		return m, cmd
 	}
 	return m, nil
+}
+
+// selectToneByButton sets the active tone from the clicked chip's button ID.
+func (m *model) selectToneByButton(id buttonID) {
+	for _, opt := range toneOptions {
+		if opt.id == id {
+			m.tone = opt.tone
+			return
+		}
+	}
 }
 
 // hitTest returns the button whose rendered box contains (x, y), or btnNone.
@@ -674,11 +713,11 @@ func (m *model) resize(width, height int) {
 
 	// chromeRows counts every rendered line except the flexible Source and
 	// Translation box contents: header, blanks, three labels, the Context
-	// box (2 borders + 2 content rows), the four remaining borders, the
-	// Translate button row, and the status and help lines. The extra 1 is a
-	// safety margin so the view never exactly fills (and thus scrolls) the
-	// screen.
-	const chromeRows = 20
+	// box (2 borders + 2 content rows), the tone selector row and its blank,
+	// the four remaining borders, the Translate button row, and the status and
+	// help lines. The extra 1 is a safety margin so the view never exactly
+	// fills (and thus scrolls) the screen.
+	const chromeRows = 22
 	available := height - chromeRows - 1
 	if available < 6 {
 		available = 6

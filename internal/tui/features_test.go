@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -9,8 +10,20 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/fred01/quick-translate/internal/config"
+	"github.com/fred01/quick-translate/internal/prompt"
 	"github.com/fred01/quick-translate/internal/translate"
 )
+
+// recordingTranslator captures the last TranslationInput it was given, so
+// tests can assert what the submit path actually sent (for example, the tone).
+type recordingTranslator struct {
+	last translate.TranslationInput
+}
+
+func (r *recordingTranslator) Translate(_ context.Context, input translate.TranslationInput, _ translate.Reporter) (string, error) {
+	r.last = input
+	return "ok", nil
+}
 
 var errSetupTest = errors.New("endpoint test failed")
 
@@ -67,7 +80,7 @@ func TestFocusRingExcludesMouseOnlyButtons(t *testing.T) {
 	// No result yet: Copy is not focusable; Setup and Quit are never in the
 	// ring (they are mouse-only).
 	order := m.focusOrder()
-	want := []focusTarget{focusSource, focusContext, focusTranslateBtn}
+	want := []focusTarget{focusSource, focusContext, focusTone, focusTranslateBtn}
 	if len(order) != len(want) {
 		t.Fatalf("focusOrder without result = %v, want %v", order, want)
 	}
@@ -80,7 +93,7 @@ func TestFocusRingExcludesMouseOnlyButtons(t *testing.T) {
 	// With a result, Copy joins the ring — but still no Setup/Quit.
 	m.resultText = "something"
 	order = m.focusOrder()
-	wantWithCopy := []focusTarget{focusSource, focusContext, focusTranslateBtn, focusCopyBtn}
+	wantWithCopy := []focusTarget{focusSource, focusContext, focusTone, focusTranslateBtn, focusCopyBtn}
 	if len(order) != len(wantWithCopy) {
 		t.Fatalf("focusOrder with result = %v, want %v", order, wantWithCopy)
 	}
@@ -90,7 +103,7 @@ func TestTabCyclesFocusableElements(t *testing.T) {
 	m := newTestModel(&fakeTranslator{})
 	m.resultText = "x" // make Copy focusable
 
-	seq := []focusTarget{focusContext, focusTranslateBtn, focusCopyBtn, focusSource}
+	seq := []focusTarget{focusContext, focusTone, focusTranslateBtn, focusCopyBtn, focusSource}
 	for i, wantFocus := range seq {
 		m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyTab})
 		if m.focus != wantFocus {
@@ -574,6 +587,94 @@ func focusButton(t *testing.T, m model, target focusTarget) model {
 	}
 	t.Fatalf("could not focus %v via Tab", target)
 	return m
+}
+
+// --- Tone selector ---
+
+func TestToneDefaultsToNeutral(t *testing.T) {
+	m := newTestModel(&fakeTranslator{})
+	if m.tone != prompt.ToneNeutral {
+		t.Fatalf("default tone = %v, want ToneNeutral", m.tone)
+	}
+}
+
+func TestToneLeftRightCyclesWhenFocused(t *testing.T) {
+	m := newTestModel(&fakeTranslator{})
+	m = focusButton(t, m, focusTone)
+
+	// Visual order is Literal, Neutral, Diplomatic; the default is Neutral.
+	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyRight})
+	if m.tone != prompt.ToneDiplomatic {
+		t.Fatalf("Right from Neutral = %v, want Diplomatic", m.tone)
+	}
+	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyRight})
+	if m.tone != prompt.ToneLiteral {
+		t.Fatalf("Right from Diplomatic must wrap to Literal, got %v", m.tone)
+	}
+	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyLeft})
+	if m.tone != prompt.ToneDiplomatic {
+		t.Fatalf("Left from Literal must wrap to Diplomatic, got %v", m.tone)
+	}
+}
+
+func TestToneArrowsIgnoredWhenSourceFocused(t *testing.T) {
+	m := newTestModel(&fakeTranslator{})
+	if m.focus != focusSource {
+		t.Fatal("expected Source focused initially")
+	}
+	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyRight})
+	if m.tone != prompt.ToneNeutral {
+		t.Fatalf("Right while Source is focused must not change tone, got %v", m.tone)
+	}
+}
+
+func TestToneMouseClickSelectsAndFocuses(t *testing.T) {
+	m := newTestModel(&fakeTranslator{})
+	m, _ = update(m, tea.WindowSizeMsg{Width: 100, Height: 34})
+	_ = m.View()
+
+	zone, ok := m.holder.zones[btnToneDiplomatic]
+	if !ok {
+		t.Fatal("Diplomatic chip zone was not recorded during render")
+	}
+	m, _ = update(m, tea.MouseClickMsg{X: zone.x0, Y: zone.y0, Button: tea.MouseLeft})
+	if m.tone != prompt.ToneDiplomatic {
+		t.Fatalf("clicking Diplomatic set tone = %v, want Diplomatic", m.tone)
+	}
+	if m.focus != focusTone {
+		t.Fatalf("clicking a tone chip must focus the tone selector, focus = %v", m.focus)
+	}
+}
+
+func TestEnterOnToneSubmits(t *testing.T) {
+	m := newTestModel(&fakeTranslator{response: "x"})
+	m.source.SetValue("hello")
+	m = focusButton(t, m, focusTone)
+
+	m, cmd := update(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !m.busy {
+		t.Fatal("Enter on the tone selector must submit")
+	}
+	if cmd == nil {
+		t.Fatal("Enter on the tone selector must return a command")
+	}
+}
+
+func TestSubmitSendsSelectedTone(t *testing.T) {
+	rec := &recordingTranslator{}
+	m := newTestModel(rec)
+	m.source.SetValue("hello")
+	m = focusButton(t, m, focusTone)
+	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyRight}) // Neutral -> Diplomatic
+
+	_, cmd := update(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	collectMsgs(cmd) // run the translate command so the translator records its input
+	if rec.last.Tone != prompt.ToneDiplomatic {
+		t.Fatalf("submitted tone = %v, want Diplomatic", rec.last.Tone)
+	}
+	if rec.last.Source != "hello" {
+		t.Fatalf("submitted source = %q, want hello", rec.last.Source)
+	}
 }
 
 func findSetupResultMsg(msgs []tea.Msg) (setupResultMsg, bool) {
