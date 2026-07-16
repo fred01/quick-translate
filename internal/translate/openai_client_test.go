@@ -90,7 +90,7 @@ func TestTranslateRequestShape(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "translategemma")
+	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "translategemma", 0)
 	if err != nil {
 		t.Fatalf("NewOpenAIClient() error: %v", err)
 	}
@@ -132,13 +132,71 @@ func TestTranslateRequestShape(t *testing.T) {
 	}
 }
 
+func TestTranslateMultiSplitsTaggedResponse(t *testing.T) {
+	tones := []prompt.Tone{prompt.ToneLiteral, prompt.ToneDiplomatic}
+	tag := func(tn prompt.Tone) string { return "<<<QT:" + tn.String() + ">>>" }
+
+	var captured capturedRequest
+	server := newFakeServer(t, func(w http.ResponseWriter, r *http.Request, req capturedRequest) {
+		captured = req
+		writeChatCompletion(w, tag(prompt.ToneLiteral)+"\nBlunt version.\n"+tag(prompt.ToneDiplomatic)+"\nPolite version.")
+	})
+	defer server.Close()
+
+	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m", 0)
+	if err != nil {
+		t.Fatalf("NewOpenAIClient() error: %v", err)
+	}
+
+	got, err := client.TranslateMulti(context.Background(), "исходный текст", "", tones, &fakeReporter{})
+	if err != nil {
+		t.Fatalf("TranslateMulti() error: %v", err)
+	}
+	if got[prompt.ToneLiteral] != "Blunt version." {
+		t.Fatalf("Literal = %q", got[prompt.ToneLiteral])
+	}
+	if got[prompt.ToneDiplomatic] != "Polite version." {
+		t.Fatalf("Diplomatic = %q", got[prompt.ToneDiplomatic])
+	}
+	// A multi-tone request sends the multi prompt in a single call.
+	if want := prompt.BuildMulti("исходный текст", "", tones); captured.Body.Messages[0].Content != want {
+		t.Fatalf("multi prompt mismatch\n--- got ---\n%s", captured.Body.Messages[0].Content)
+	}
+}
+
+func TestTranslateMultiSingleToneUsesPlainPrompt(t *testing.T) {
+	var captured capturedRequest
+	server := newFakeServer(t, func(w http.ResponseWriter, r *http.Request, req capturedRequest) {
+		captured = req
+		writeChatCompletion(w, "plain translation")
+	})
+	defer server.Close()
+
+	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m", 0)
+	if err != nil {
+		t.Fatalf("NewOpenAIClient() error: %v", err)
+	}
+
+	got, err := client.TranslateMulti(context.Background(), "исходный", "", []prompt.Tone{prompt.ToneNeutral}, &fakeReporter{})
+	if err != nil {
+		t.Fatalf("TranslateMulti() error: %v", err)
+	}
+	if got[prompt.ToneNeutral] != "plain translation" {
+		t.Fatalf("Neutral = %q", got[prompt.ToneNeutral])
+	}
+	// One tone must use the plain single-tone prompt, not the tagged format.
+	if want := prompt.Build("исходный", "", prompt.ToneNeutral); captured.Body.Messages[0].Content != want {
+		t.Fatalf("single-tone prompt mismatch\n--- got ---\n%s", captured.Body.Messages[0].Content)
+	}
+}
+
 func TestTranslateReportsStagesOnSuccess(t *testing.T) {
 	server := newFakeServer(t, func(w http.ResponseWriter, r *http.Request, req capturedRequest) {
 		writeChatCompletion(w, "translated")
 	})
 	defer server.Close()
 
-	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m")
+	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m", 0)
 	if err != nil {
 		t.Fatalf("NewOpenAIClient() error: %v", err)
 	}
@@ -184,7 +242,7 @@ func TestTranslateNoChoices(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m")
+	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m", 0)
 	if err != nil {
 		t.Fatalf("NewOpenAIClient() error: %v", err)
 	}
@@ -203,7 +261,7 @@ func TestTranslateEmptyContent(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m")
+	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m", 0)
 	if err != nil {
 		t.Fatalf("NewOpenAIClient() error: %v", err)
 	}
@@ -221,7 +279,7 @@ func TestTranslateTrimsSurroundingWhitespace(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m")
+	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m", 0)
 	if err != nil {
 		t.Fatalf("NewOpenAIClient() error: %v", err)
 	}
@@ -253,7 +311,7 @@ func TestTranslateNon2xxResponse(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewOpenAIClient(server.URL+"/v1", secretKey, "m")
+	client, err := NewOpenAIClient(server.URL+"/v1", secretKey, "m", 0)
 	if err != nil {
 		t.Fatalf("NewOpenAIClient() error: %v", err)
 	}
@@ -275,7 +333,7 @@ func TestTranslateMalformedResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m")
+	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m", 0)
 	if err != nil {
 		t.Fatalf("NewOpenAIClient() error: %v", err)
 	}
@@ -294,7 +352,7 @@ func TestTranslateTimeout(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m")
+	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m", 0)
 	if err != nil {
 		t.Fatalf("NewOpenAIClient() error: %v", err)
 	}
@@ -327,7 +385,7 @@ func TestTranslateCancellation(t *testing.T) {
 	defer server.Close()
 	defer close(release)
 
-	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m")
+	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m", 0)
 	if err != nil {
 		t.Fatalf("NewOpenAIClient() error: %v", err)
 	}

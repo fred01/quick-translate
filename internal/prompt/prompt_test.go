@@ -179,6 +179,87 @@ func TestParseTone(t *testing.T) {
 	}
 }
 
+func TestBuildMultiIncludesTagsFidelityAndSource(t *testing.T) {
+	tones := []Tone{ToneLiteral, ToneDiplomatic}
+	got := BuildMulti("Да, закончил вчера", "", tones)
+
+	for _, tone := range tones {
+		if !strings.Contains(got, multiTag(tone)) {
+			t.Fatalf("BuildMulti missing tag for %v:\n%s", tone, got)
+		}
+	}
+	// Shares the fidelity rules with the single-tone prompt.
+	if !strings.Contains(got, "Treat technical names, environment names") {
+		t.Fatal("BuildMulti missing shared fidelity requirements")
+	}
+	// Must not carry the single-output rule that forbids labels.
+	if strings.Contains(got, "Return only the final English text.") {
+		t.Fatal("BuildMulti must not include the single-output rule")
+	}
+	if !strings.HasSuffix(got, "\n--- BEGIN SOURCE TEXT ---\nДа, закончил вчера\n--- END SOURCE TEXT ---\n") {
+		t.Fatalf("BuildMulti source section wrong:\n%s", got)
+	}
+}
+
+func TestBuildMultiWithContext(t *testing.T) {
+	got := BuildMulti("Да", "prior message", []Tone{ToneNeutral, ToneLiteral})
+	if !strings.Contains(got, "--- BEGIN REFERENCE CONTEXT ---\nprior message\n--- END REFERENCE CONTEXT ---") {
+		t.Fatalf("BuildMulti missing reference context section:\n%s", got)
+	}
+}
+
+func TestParseMultiHappyPath(t *testing.T) {
+	tones := []Tone{ToneLiteral, ToneNeutral, ToneDiplomatic}
+	raw := multiTag(ToneLiteral) + "\nLiteral one.\n" +
+		multiTag(ToneNeutral) + "\nNeutral two.\n" +
+		multiTag(ToneDiplomatic) + "\nDiplomatic three."
+	got := ParseMulti(raw, tones)
+	want := map[Tone]string{
+		ToneLiteral:    "Literal one.",
+		ToneNeutral:    "Neutral two.",
+		ToneDiplomatic: "Diplomatic three.",
+	}
+	for tone, w := range want {
+		if got[tone] != w {
+			t.Fatalf("ParseMulti[%v] = %q, want %q", tone, got[tone], w)
+		}
+	}
+}
+
+func TestParseMultiOutOfOrderWithSurroundingText(t *testing.T) {
+	// Tags out of the requested order, plus chatter before and after.
+	raw := "Sure, here you go:\n" +
+		multiTag(ToneDiplomatic) + "\nPolite version.\n\n" +
+		multiTag(ToneLiteral) + "\nBlunt version.\nDone."
+	got := ParseMulti(raw, []Tone{ToneLiteral, ToneDiplomatic})
+	if got[ToneDiplomatic] != "Polite version." {
+		t.Fatalf("Diplomatic = %q", got[ToneDiplomatic])
+	}
+	if got[ToneLiteral] != "Blunt version.\nDone." {
+		t.Fatalf("Literal = %q", got[ToneLiteral])
+	}
+}
+
+func TestParseMultiMissingToneIsAbsent(t *testing.T) {
+	raw := multiTag(ToneLiteral) + "\nOnly literal."
+	got := ParseMulti(raw, []Tone{ToneLiteral, ToneNeutral})
+	if got[ToneLiteral] != "Only literal." {
+		t.Fatalf("Literal = %q", got[ToneLiteral])
+	}
+	if _, ok := got[ToneNeutral]; ok {
+		t.Fatal("a tone with no tag must be absent from the result")
+	}
+}
+
+func TestParseMultiPreservesMultilineTranslations(t *testing.T) {
+	raw := multiTag(ToneNeutral) + "\nFirst paragraph.\n\nSecond paragraph.\n" +
+		multiTag(ToneLiteral) + "\nOne line."
+	got := ParseMulti(raw, []Tone{ToneNeutral, ToneLiteral})
+	if got[ToneNeutral] != "First paragraph.\n\nSecond paragraph." {
+		t.Fatalf("Neutral multiline lost: %q", got[ToneNeutral])
+	}
+}
+
 func TestToneString(t *testing.T) {
 	cases := map[Tone]string{
 		ToneNeutral:    "neutral",

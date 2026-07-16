@@ -27,6 +27,15 @@ func (r *recordingTranslator) Translate(_ context.Context, input translate.Trans
 	return "ok", nil
 }
 
+func (r *recordingTranslator) TranslateMulti(_ context.Context, source, ctxText string, tones []prompt.Tone, _ translate.Reporter) (map[prompt.Tone]string, error) {
+	out := make(map[prompt.Tone]string, len(tones))
+	for _, t := range tones {
+		r.inputs = append(r.inputs, translate.TranslationInput{Source: source, Context: ctxText, Tone: t})
+		out[t] = "ok"
+	}
+	return out, nil
+}
+
 func (r *recordingTranslator) tones() []prompt.Tone {
 	var out []prompt.Tone
 	for _, in := range r.inputs {
@@ -736,7 +745,7 @@ func TestSubmitWithNoToneSelectedDoesNothing(t *testing.T) {
 	}
 }
 
-func TestSubmitFiresAllSelectedTones(t *testing.T) {
+func TestSubmitRequestsAllSelectedTonesInOneCall(t *testing.T) {
 	rec := &recordingTranslator{}
 	m := newTestModel(rec)
 	m, _ = update(m, tea.WindowSizeMsg{Width: 80, Height: 40})
@@ -747,32 +756,65 @@ func TestSubmitFiresAllSelectedTones(t *testing.T) {
 		prompt.ToneDiplomatic: true,
 	}
 
-	_, cmd := update(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	m, cmd := update(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collectMsgs(cmd)
 
-	// One request per selected tone, in display order.
+	// All selected tones go out in a single TranslateMulti call, in order.
 	want := []prompt.Tone{prompt.ToneLiteral, prompt.ToneNeutral, prompt.ToneDiplomatic}
 	got := rec.tones()
 	if len(got) != len(want) {
-		t.Fatalf("fired %v tones, want %v", got, want)
+		t.Fatalf("requested %v tones, want %v", got, want)
 	}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Fatalf("fired tones = %v, want %v", got, want)
+			t.Fatalf("requested tones = %v, want %v", got, want)
 		}
 	}
 
-	// Each request yields a resultMsg tagged with its tone.
-	seen := map[prompt.Tone]bool{}
+	// Exactly one resultMsg carries the whole batch's results.
+	var results []resultMsg
 	for _, msg := range msgs {
 		if rm, ok := msg.(resultMsg); ok {
-			seen[rm.tone] = true
+			results = append(results, rm)
 		}
 	}
+	if len(results) != 1 {
+		t.Fatalf("got %d resultMsgs, want exactly 1 (one request for all tones)", len(results))
+	}
 	for _, tone := range want {
-		if !seen[tone] {
-			t.Fatalf("missing resultMsg for tone %v", tone)
+		if _, ok := results[0].results[tone]; !ok {
+			t.Fatalf("resultMsg missing tone %v", tone)
 		}
+	}
+
+	// Applying it populates every tone's result.
+	m, _ = update(m, results[0])
+	if m.busy {
+		t.Fatal("busy must clear once the single result arrives")
+	}
+	for _, tone := range want {
+		if m.results[tone].text != "ok" {
+			t.Fatalf("results[%v].text = %q, want ok", tone, m.results[tone].text)
+		}
+	}
+}
+
+func TestMissingVariantBecomesError(t *testing.T) {
+	m := newTestModel(&fakeTranslator{})
+	m, _ = update(m, tea.WindowSizeMsg{Width: 80, Height: 40})
+	m.reqTones = []prompt.Tone{prompt.ToneLiteral, prompt.ToneNeutral}
+	m.activeResult = prompt.ToneLiteral
+
+	// The model returned only Literal; Neutral is absent from the map.
+	m, _ = update(m, resultMsg{
+		seq:     m.reqSeq,
+		results: map[prompt.Tone]string{prompt.ToneLiteral: "done"},
+	})
+	if m.results[prompt.ToneLiteral].text != "done" {
+		t.Fatalf("Literal text = %q, want done", m.results[prompt.ToneLiteral].text)
+	}
+	if m.results[prompt.ToneNeutral].err == nil {
+		t.Fatal("a tone the model omitted must surface as an error")
 	}
 }
 

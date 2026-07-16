@@ -264,11 +264,10 @@ func (m model) endpointLabel() string {
 func (m model) statusText() string {
 	switch {
 	case m.busy:
-		total := len(m.reqTones)
-		if total <= 1 {
-			return "Translating…"
+		if total := len(m.reqTones); total > 1 {
+			return fmt.Sprintf("Translating %d variants…", total)
 		}
-		return fmt.Sprintf("Translating %d variants… %d/%d done", total, total-m.pending, total)
+		return "Translating…"
 	case m.cancelled:
 		return "Cancelled"
 	case m.everSubmitted:

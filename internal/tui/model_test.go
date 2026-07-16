@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/fred01/quick-translate/internal/prompt"
 	"github.com/fred01/quick-translate/internal/translate"
 )
 
@@ -25,6 +26,18 @@ func (f *fakeTranslator) Translate(_ context.Context, _ translate.TranslationInp
 		return "", f.err
 	}
 	return f.response, nil
+}
+
+func (f *fakeTranslator) TranslateMulti(_ context.Context, _, _ string, tones []prompt.Tone, _ translate.Reporter) (map[prompt.Tone]string, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make(map[prompt.Tone]string, len(tones))
+	for _, t := range tones {
+		out[t] = f.response
+	}
+	return out, nil
 }
 
 // collectMsgs runs cmd (and, recursively, any tea.BatchMsg it produces) and

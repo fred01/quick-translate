@@ -163,13 +163,15 @@ panes, a **Tone** selector, plus clickable **Translate**, **Clear**,
 **Copy**, and **Setup** buttons. Long translations wrap at word boundaries.
 
 The **Tone** selector above Source is a set of **checkboxes** (Literal,
-Neutral, Diplomatic): check one or several. A single **Translate** then
-requests every checked tone at once — the requests run concurrently, so
-getting all three costs about one round-trip rather than three. When more
+Neutral, Diplomatic): check one or several. A single **Translate** then asks
+the model for every checked tone in **one request** — the prompt requests all
+the variants at once and `qt` splits the labeled response — so N variants
+cost one round-trip and one pass over the source rather than N. When more
 than one tone was requested, a **Variants** row of buttons appears above
 Translation; click a button (or focus the row and use `←`/`→`) to flip the
-Translation pane between the results. `--tone` sets which box starts checked
-when the UI opens.
+Translation pane between the results. A variant the model fails to return is
+marked with `!` on its tab. `--tone` sets which box starts checked when the
+UI opens.
 
 The **Clear** button empties Source and Context and drops the results for a
 fresh start (the tone selection and active profile are kept). The **Setup**
@@ -247,11 +249,18 @@ JSON with named profiles and an active one:
     "nvidia": {
       "base_url": "https://integrate.api.nvidia.com/v1",
       "model": "meta/llama-3.1-70b-instruct",
-      "api_key": "..."
+      "api_key": "...",
+      "timeout_seconds": 180
     }
   }
 }
 ```
+
+Each profile may set an optional `timeout_seconds` bounding a single request.
+It defaults to `60` when omitted (or zero) — raise it for slow, self-hosted
+models on modest hardware, where a cold start or a multi-tone request can take
+a while. The setup form does not edit this field, but it is preserved when you
+edit a profile through the form.
 
 An older single-endpoint config (a flat `{base_url, model, api_key}`) is
 transparently migrated into a profile named `default` on first load.
@@ -268,12 +277,15 @@ QT_PROFILE    select the active profile by name
 QT_BASE_URL   override the chosen profile's base URL
 QT_MODEL      override the chosen profile's model
 QT_API_KEY    override the chosen profile's API key
+QT_TIMEOUT    override the chosen profile's per-request timeout (whole seconds)
 ```
 
 Profile selection precedence is `--profile` flag > `QT_PROFILE` > the stored
-active profile. The `QT_BASE_URL`/`QT_MODEL`/`QT_API_KEY` variables then
-override the individual fields of the chosen profile. The three effective
-field values (from a profile and/or the environment) are all required.
+active profile. The `QT_BASE_URL`/`QT_MODEL`/`QT_API_KEY`/`QT_TIMEOUT`
+variables then override the individual fields of the chosen profile.
+`QT_TIMEOUT` is ignored unless it parses to a positive integer. The base URL,
+model, and API key (from a profile and/or the environment) are all required;
+the timeout is optional and defaults to 60 seconds.
 
 ## Shell completion
 
