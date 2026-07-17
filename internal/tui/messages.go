@@ -6,24 +6,17 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/fred01/quick-translate/internal/config"
+	"github.com/fred01/quick-translate/internal/prompt"
 	"github.com/fred01/quick-translate/internal/setup"
 	"github.com/fred01/quick-translate/internal/translate"
 )
 
-// statusMsg carries a non-terminal progress update (preparing, sending, or
-// waiting) from an in-flight translation back into the update loop. seq
-// identifies which submission it belongs to, so a stale message from a
-// cancelled or superseded request can be ignored.
-type statusMsg struct {
-	seq    int
-	status translate.Status
-}
-
-// resultMsg carries the outcome of a translation request: the translated
-// text on success, or a safe error on failure.
+// resultMsg carries the outcome of one multi-tone translation request: a map
+// of tone to translated text on success, or a request-level error. A requested
+// tone the model omitted is simply absent from results.
 type resultMsg struct {
 	seq     int
-	text    string
+	results map[prompt.Tone]string
 	err     error
 	elapsed float64 // seconds
 }
@@ -36,27 +29,6 @@ type setupResultMsg struct {
 	cfg         config.Config
 	translation string
 	err         error
-}
-
-// programReporter forwards non-terminal translate.Status reports into the
-// running Bubble Tea program as statusMsg values. Terminal stages
-// (completed/failed) are delivered instead through the translation
-// command's own return value, which also carries the translated text.
-type programReporter struct {
-	program *tea.Program
-	seq     int
-}
-
-// Report implements translate.Reporter.
-func (r *programReporter) Report(s translate.Status) {
-	if r.program == nil {
-		return
-	}
-	switch s.Stage {
-	case translate.StageCompleted, translate.StageFailed:
-		return
-	}
-	r.program.Send(statusMsg{seq: r.seq, status: s})
 }
 
 // setupTestCmd tests candidate through the real production translation path

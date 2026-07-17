@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -9,8 +10,39 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/fred01/quick-translate/internal/config"
+	"github.com/fred01/quick-translate/internal/prompt"
 	"github.com/fred01/quick-translate/internal/translate"
 )
+
+// recordingTranslator captures every TranslationInput it is given, so tests
+// can assert what the submit path actually sent (for example, which tones). In
+// tests the batch's commands run sequentially through collectMsgs, so no
+// locking is needed.
+type recordingTranslator struct {
+	inputs []translate.TranslationInput
+}
+
+func (r *recordingTranslator) Translate(_ context.Context, input translate.TranslationInput, _ translate.Reporter) (string, error) {
+	r.inputs = append(r.inputs, input)
+	return "ok", nil
+}
+
+func (r *recordingTranslator) TranslateMulti(_ context.Context, source, ctxText string, tones []prompt.Tone, _ translate.Reporter) (map[prompt.Tone]string, error) {
+	out := make(map[prompt.Tone]string, len(tones))
+	for _, t := range tones {
+		r.inputs = append(r.inputs, translate.TranslationInput{Source: source, Context: ctxText, Tone: t})
+		out[t] = "ok"
+	}
+	return out, nil
+}
+
+func (r *recordingTranslator) tones() []prompt.Tone {
+	var out []prompt.Tone
+	for _, in := range r.inputs {
+		out = append(out, in.Tone)
+	}
+	return out
+}
 
 var errSetupTest = errors.New("endpoint test failed")
 
@@ -21,7 +53,7 @@ func TestResultWrapsByWord(t *testing.T) {
 	m, _ = update(m, tea.WindowSizeMsg{Width: 40, Height: 30})
 
 	long := "This is a long sentence that should wrap at word boundaries rather than being cut off."
-	m.resultText = long
+	m.results[m.activeResult] = toneResult{text: long}
 	m.setResultContent()
 
 	content := m.result.GetContent()
@@ -54,8 +86,8 @@ func TestSuccessStoresResultTextForCopy(t *testing.T) {
 	rm, _ := findResultMsg(collectMsgs(cmd))
 	m, _ = update(m, rm)
 
-	if m.resultText != "translated result" {
-		t.Fatalf("resultText = %q, want %q", m.resultText, "translated result")
+	if got := m.activeResultText(); got != "translated result" {
+		t.Fatalf("activeResultText = %q, want %q", got, "translated result")
 	}
 }
 
@@ -64,10 +96,10 @@ func TestSuccessStoresResultTextForCopy(t *testing.T) {
 func TestFocusRingExcludesMouseOnlyButtons(t *testing.T) {
 	m := newTestModel(&fakeTranslator{})
 
-	// No result yet: Copy is not focusable; Setup and Quit are never in the
-	// ring (they are mouse-only).
+	// No result yet: the result tabs and Copy are not focusable; Setup and
+	// Quit are never in the ring (they are mouse-only).
 	order := m.focusOrder()
-	want := []focusTarget{focusSource, focusContext, focusTranslateBtn}
+	want := []focusTarget{focusSource, focusContext, focusTone, focusTranslateBtn, focusClearBtn}
 	if len(order) != len(want) {
 		t.Fatalf("focusOrder without result = %v, want %v", order, want)
 	}
@@ -77,20 +109,38 @@ func TestFocusRingExcludesMouseOnlyButtons(t *testing.T) {
 		}
 	}
 
-	// With a result, Copy joins the ring — but still no Setup/Quit.
-	m.resultText = "something"
+	// A single-variant result adds Copy but no tabs (tabs need >1 variant).
+	m.reqTones = []prompt.Tone{prompt.DefaultTone}
+	m.results[prompt.DefaultTone] = toneResult{text: "something"}
 	order = m.focusOrder()
-	wantWithCopy := []focusTarget{focusSource, focusContext, focusTranslateBtn, focusCopyBtn}
+	wantWithCopy := []focusTarget{focusSource, focusContext, focusTone, focusTranslateBtn, focusClearBtn, focusCopyBtn}
 	if len(order) != len(wantWithCopy) {
-		t.Fatalf("focusOrder with result = %v, want %v", order, wantWithCopy)
+		t.Fatalf("focusOrder with one result = %v, want %v", order, wantWithCopy)
+	}
+
+	// Two variants add the result tabs as well.
+	m.reqTones = []prompt.Tone{prompt.ToneLiteral, prompt.ToneDiplomatic}
+	m.activeResult = prompt.ToneLiteral
+	m.results = map[prompt.Tone]toneResult{prompt.ToneLiteral: {text: "x"}, prompt.ToneDiplomatic: {text: "y"}}
+	order = m.focusOrder()
+	wantWithTabs := []focusTarget{focusSource, focusContext, focusTone, focusTranslateBtn, focusClearBtn, focusResultTabs, focusCopyBtn}
+	if len(order) != len(wantWithTabs) {
+		t.Fatalf("focusOrder with two results = %v, want %v", order, wantWithTabs)
+	}
+	for i := range wantWithTabs {
+		if order[i] != wantWithTabs[i] {
+			t.Fatalf("focusOrder with two results = %v, want %v", order, wantWithTabs)
+		}
 	}
 }
 
 func TestTabCyclesFocusableElements(t *testing.T) {
 	m := newTestModel(&fakeTranslator{})
-	m.resultText = "x" // make Copy focusable
+	// One variant result: Copy is focusable, tabs are not.
+	m.reqTones = []prompt.Tone{prompt.DefaultTone}
+	m.results[prompt.DefaultTone] = toneResult{text: "x"}
 
-	seq := []focusTarget{focusContext, focusTranslateBtn, focusCopyBtn, focusSource}
+	seq := []focusTarget{focusContext, focusTone, focusTranslateBtn, focusClearBtn, focusCopyBtn, focusSource}
 	for i, wantFocus := range seq {
 		m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyTab})
 		if m.focus != wantFocus {
@@ -162,7 +212,7 @@ func TestCopyWithoutResultDoesNothing(t *testing.T) {
 
 func TestCopyWithResultSetsClipboard(t *testing.T) {
 	m := newTestModel(&fakeTranslator{})
-	m.resultText = "copy me"
+	m.results[m.activeResult] = toneResult{text: "copy me"}
 	cmd := m.copyResult()
 	if cmd == nil {
 		t.Fatal("copyResult with a result must return a clipboard command")
@@ -574,6 +624,265 @@ func focusButton(t *testing.T, m model, target focusTarget) model {
 	}
 	t.Fatalf("could not focus %v via Tab", target)
 	return m
+}
+
+// --- Tone selector (checkboxes) ---
+
+func TestToneDefaultsToDiplomaticChecked(t *testing.T) {
+	m := newTestModel(&fakeTranslator{})
+	if !m.toneSelected[prompt.DefaultTone] {
+		t.Fatalf("default tone %v must start checked", prompt.DefaultTone)
+	}
+	for _, opt := range toneOptions {
+		if opt.tone != prompt.DefaultTone && m.toneSelected[opt.tone] {
+			t.Fatalf("%v must start unchecked", opt.tone)
+		}
+	}
+	if m.toneCursor != toneIndex(prompt.DefaultTone) {
+		t.Fatalf("toneCursor = %d, want %d", m.toneCursor, toneIndex(prompt.DefaultTone))
+	}
+}
+
+func TestToneArrowsMoveCursorWhenFocused(t *testing.T) {
+	m := newTestModel(&fakeTranslator{})
+	m = focusButton(t, m, focusTone)
+	m.toneCursor = toneIndex(prompt.ToneNeutral) // known start (index 1)
+
+	// Visual order is Literal(0), Neutral(1), Diplomatic(2).
+	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyRight})
+	if m.toneCursor != toneIndex(prompt.ToneDiplomatic) {
+		t.Fatalf("Right from Neutral cursor = %d, want Diplomatic", m.toneCursor)
+	}
+	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyRight})
+	if m.toneCursor != toneIndex(prompt.ToneLiteral) {
+		t.Fatalf("Right from Diplomatic must wrap to Literal, got %d", m.toneCursor)
+	}
+	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyLeft})
+	if m.toneCursor != toneIndex(prompt.ToneDiplomatic) {
+		t.Fatalf("Left from Literal must wrap to Diplomatic, got %d", m.toneCursor)
+	}
+}
+
+func TestToneSpaceTogglesCheckboxUnderCursor(t *testing.T) {
+	m := newTestModel(&fakeTranslator{})
+	m = focusButton(t, m, focusTone)
+	m.toneCursor = toneIndex(prompt.ToneLiteral)
+
+	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeySpace})
+	if !m.toneSelected[prompt.ToneLiteral] {
+		t.Fatal("Space must check the tone under the cursor")
+	}
+	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeySpace})
+	if m.toneSelected[prompt.ToneLiteral] {
+		t.Fatal("Space again must uncheck it")
+	}
+}
+
+func TestToneArrowsIgnoredWhenSourceFocused(t *testing.T) {
+	m := newTestModel(&fakeTranslator{})
+	if m.focus != focusSource {
+		t.Fatal("expected Source focused initially")
+	}
+	before := m.toneCursor
+	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyRight})
+	if m.toneCursor != before {
+		t.Fatalf("Right while Source is focused must not move the tone cursor, got %d", m.toneCursor)
+	}
+}
+
+func TestToneMouseClickTogglesAndFocuses(t *testing.T) {
+	m := newTestModel(&fakeTranslator{})
+	m, _ = update(m, tea.WindowSizeMsg{Width: 100, Height: 34})
+	_ = m.View()
+
+	zone, ok := m.holder.zones[btnToneLiteral]
+	if !ok {
+		t.Fatal("Literal checkbox zone was not recorded during render")
+	}
+	if m.toneSelected[prompt.ToneLiteral] {
+		t.Fatal("Literal must start unchecked")
+	}
+	m, _ = update(m, tea.MouseClickMsg{X: zone.x0, Y: zone.y0, Button: tea.MouseLeft})
+	if !m.toneSelected[prompt.ToneLiteral] {
+		t.Fatal("clicking Literal must check it")
+	}
+	if m.focus != focusTone {
+		t.Fatalf("clicking a tone checkbox must focus the tone selector, focus = %v", m.focus)
+	}
+	if m.toneCursor != toneIndex(prompt.ToneLiteral) {
+		t.Fatalf("clicking Literal must move the cursor onto it, got %d", m.toneCursor)
+	}
+}
+
+func TestEnterOnToneSubmits(t *testing.T) {
+	m := newTestModel(&fakeTranslator{response: "x"})
+	m.source.SetValue("hello")
+	m = focusButton(t, m, focusTone)
+
+	m, cmd := update(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !m.busy {
+		t.Fatal("Enter on the tone selector must submit")
+	}
+	if cmd == nil {
+		t.Fatal("Enter on the tone selector must return a command")
+	}
+}
+
+func TestSubmitWithNoToneSelectedDoesNothing(t *testing.T) {
+	m := newTestModel(&fakeTranslator{})
+	m.source.SetValue("hello")
+	m.toneSelected = map[prompt.Tone]bool{} // uncheck everything
+
+	m, cmd := update(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd != nil {
+		t.Fatal("submit with no tone selected must return no command")
+	}
+	if m.busy {
+		t.Fatal("submit with no tone selected must not start a request")
+	}
+	if m.notice == "" {
+		t.Fatal("submit with no tone selected should set an explanatory notice")
+	}
+}
+
+func TestSubmitRequestsAllSelectedTonesInOneCall(t *testing.T) {
+	rec := &recordingTranslator{}
+	m := newTestModel(rec)
+	m, _ = update(m, tea.WindowSizeMsg{Width: 80, Height: 40})
+	m.source.SetValue("hello")
+	m.toneSelected = map[prompt.Tone]bool{
+		prompt.ToneLiteral:    true,
+		prompt.ToneNeutral:    true,
+		prompt.ToneDiplomatic: true,
+	}
+
+	m, cmd := update(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	msgs := collectMsgs(cmd)
+
+	// All selected tones go out in a single TranslateMulti call, in order.
+	want := []prompt.Tone{prompt.ToneLiteral, prompt.ToneNeutral, prompt.ToneDiplomatic}
+	got := rec.tones()
+	if len(got) != len(want) {
+		t.Fatalf("requested %v tones, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("requested tones = %v, want %v", got, want)
+		}
+	}
+
+	// Exactly one resultMsg carries the whole batch's results.
+	var results []resultMsg
+	for _, msg := range msgs {
+		if rm, ok := msg.(resultMsg); ok {
+			results = append(results, rm)
+		}
+	}
+	if len(results) != 1 {
+		t.Fatalf("got %d resultMsgs, want exactly 1 (one request for all tones)", len(results))
+	}
+	for _, tone := range want {
+		if _, ok := results[0].results[tone]; !ok {
+			t.Fatalf("resultMsg missing tone %v", tone)
+		}
+	}
+
+	// Applying it populates every tone's result.
+	m, _ = update(m, results[0])
+	if m.busy {
+		t.Fatal("busy must clear once the single result arrives")
+	}
+	for _, tone := range want {
+		if m.results[tone].text != "ok" {
+			t.Fatalf("results[%v].text = %q, want ok", tone, m.results[tone].text)
+		}
+	}
+}
+
+func TestMissingVariantBecomesError(t *testing.T) {
+	m := newTestModel(&fakeTranslator{})
+	m, _ = update(m, tea.WindowSizeMsg{Width: 80, Height: 40})
+	m.reqTones = []prompt.Tone{prompt.ToneLiteral, prompt.ToneNeutral}
+	m.activeResult = prompt.ToneLiteral
+
+	// The model returned only Literal; Neutral is absent from the map.
+	m, _ = update(m, resultMsg{
+		seq:     m.reqSeq,
+		results: map[prompt.Tone]string{prompt.ToneLiteral: "done"},
+	})
+	if m.results[prompt.ToneLiteral].text != "done" {
+		t.Fatalf("Literal text = %q, want done", m.results[prompt.ToneLiteral].text)
+	}
+	if m.results[prompt.ToneNeutral].err == nil {
+		t.Fatal("a tone the model omitted must surface as an error")
+	}
+}
+
+func TestResultTabsSwitchActiveVariant(t *testing.T) {
+	m := newTestModel(&fakeTranslator{})
+	m, _ = update(m, tea.WindowSizeMsg{Width: 80, Height: 40})
+	// Simulate a completed two-variant batch.
+	m.reqTones = []prompt.Tone{prompt.ToneLiteral, prompt.ToneDiplomatic}
+	m.results = map[prompt.Tone]toneResult{
+		prompt.ToneLiteral:    {text: "literal text", outputChars: 12},
+		prompt.ToneDiplomatic: {text: "diplomatic text", outputChars: 15},
+	}
+	m.activeResult = prompt.ToneLiteral
+	m.syncActiveResult()
+	if !strings.Contains(m.result.GetContent(), "literal text") {
+		t.Fatalf("viewport = %q, want literal text", m.result.GetContent())
+	}
+
+	// Focus the tabs and switch with the right arrow.
+	m = focusButton(t, m, focusResultTabs)
+	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyRight})
+	if m.activeResult != prompt.ToneDiplomatic {
+		t.Fatalf("Right on tabs → active %v, want Diplomatic", m.activeResult)
+	}
+	if !strings.Contains(m.result.GetContent(), "diplomatic text") {
+		t.Fatalf("viewport = %q, want diplomatic text", m.result.GetContent())
+	}
+}
+
+func TestClearResetsScreen(t *testing.T) {
+	m := newTestModel(&fakeTranslator{})
+	m, _ = update(m, tea.WindowSizeMsg{Width: 80, Height: 40})
+	m.source.SetValue("hello")
+	m.context.SetValue("ctx")
+	m.reqTones = []prompt.Tone{prompt.ToneLiteral}
+	m.results = map[prompt.Tone]toneResult{prompt.ToneLiteral: {text: "done"}}
+	m.everSubmitted = true
+
+	cmd := m.clearAll()
+	if m.source.Value() != "" || m.context.Value() != "" {
+		t.Fatal("clear must empty Source and Context")
+	}
+	if len(m.reqTones) != 0 || len(m.results) != 0 {
+		t.Fatal("clear must drop all results")
+	}
+	if m.everSubmitted {
+		t.Fatal("clear must reset everSubmitted")
+	}
+	if m.focus != focusSource {
+		t.Fatalf("clear must return focus to Source, got %v", m.focus)
+	}
+	_ = cmd
+}
+
+func TestClearButtonReachableAndClears(t *testing.T) {
+	m := newTestModel(&fakeTranslator{})
+	m, _ = update(m, tea.WindowSizeMsg{Width: 90, Height: 40})
+	m.source.SetValue("hello")
+	_ = m.View()
+
+	zone, ok := m.holder.zones[btnClear]
+	if !ok {
+		t.Fatal("Clear button zone was not recorded during render")
+	}
+	m, _ = update(m, tea.MouseClickMsg{X: zone.x0, Y: zone.y0, Button: tea.MouseLeft})
+	if m.source.Value() != "" {
+		t.Fatalf("clicking Clear must empty Source, got %q", m.source.Value())
+	}
 }
 
 func findSetupResultMsg(msgs []tea.Msg) (setupResultMsg, bool) {

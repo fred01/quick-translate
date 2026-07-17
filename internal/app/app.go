@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/fred01/quick-translate/internal/config"
+	"github.com/fred01/quick-translate/internal/prompt"
 	"github.com/fred01/quick-translate/internal/translate"
 )
 
@@ -19,7 +20,8 @@ var ErrInterrupted = errors.New("interrupted")
 // store from configPath itself and can manage profiles (add, edit, delete,
 // switch active) and re-test/save them in place, which is why it takes the
 // path, the environment lookup, the translator factory, and an optional
-// per-run profile override rather than a pre-built Translator. It returns
+// per-run profile override rather than a pre-built Translator. initialTone
+// selects the tone chip highlighted when the UI opens. It returns
 // ErrInterrupted when the user quits, since Ctrl+C is the TUI's only way to
 // exit.
 type TUIRunner func(
@@ -29,6 +31,7 @@ type TUIRunner func(
 	getenv config.EnvLookup,
 	newTranslator func(config.Config) (translate.Translator, error),
 	profileOverride string,
+	initialTone prompt.Tone,
 ) error
 
 // SetupResult summarizes a completed interactive setup for display.

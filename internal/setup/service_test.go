@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/fred01/quick-translate/internal/config"
+	"github.com/fred01/quick-translate/internal/prompt"
 	"github.com/fred01/quick-translate/internal/translate"
 )
 
@@ -26,6 +27,17 @@ func (f *fakeTranslator) Translate(_ context.Context, input translate.Translatio
 		return "", f.err
 	}
 	return f.response, nil
+}
+
+func (f *fakeTranslator) TranslateMulti(_ context.Context, _, _ string, tones []prompt.Tone, _ translate.Reporter) (map[prompt.Tone]string, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make(map[prompt.Tone]string, len(tones))
+	for _, t := range tones {
+		out[t] = f.response
+	}
+	return out, nil
 }
 
 func TestTestAndSaveUsesProductionPromptAndTranslator(t *testing.T) {

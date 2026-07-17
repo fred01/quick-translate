@@ -9,6 +9,7 @@ import (
 
 	"github.com/fred01/quick-translate/internal/app"
 	"github.com/fred01/quick-translate/internal/config"
+	"github.com/fred01/quick-translate/internal/prompt"
 	"github.com/fred01/quick-translate/internal/translate"
 )
 
@@ -32,6 +33,17 @@ func (f *fakeTranslator) Translate(_ context.Context, input translate.Translatio
 	return f.response, nil
 }
 
+func (f *fakeTranslator) TranslateMulti(_ context.Context, _, _ string, tones []prompt.Tone, _ translate.Reporter) (map[prompt.Tone]string, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make(map[prompt.Tone]string, len(tones))
+	for _, t := range tones {
+		out[t] = f.response
+	}
+	return out, nil
+}
+
 // harness builds a fresh, fully faked app.Dependencies for one test, and
 // records every call made through it so tests can assert, in particular,
 // that invalid CLI input never reaches the network.
@@ -53,6 +65,7 @@ type harness struct {
 	TUIModel   string
 	TUIHost    string
 	TUIProfile string
+	TUITone    prompt.Tone
 
 	SetupFormCalls  int
 	SetupFormErr    error
@@ -100,9 +113,10 @@ func (h *harness) Deps() app.Dependencies {
 			return h.Translator, nil
 		},
 
-		RunTUI: func(in io.Reader, out io.Writer, configPath string, getenv config.EnvLookup, newTranslator func(config.Config) (translate.Translator, error), profile string) error {
+		RunTUI: func(in io.Reader, out io.Writer, configPath string, getenv config.EnvLookup, newTranslator func(config.Config) (translate.Translator, error), profile string, tone prompt.Tone) error {
 			h.TUICalls++
 			h.TUIProfile = profile
+			h.TUITone = tone
 			if cfg, _, err := config.Effective(configPath, getenv, profile); err == nil {
 				h.TUIModel = cfg.Model
 				h.TUIHost = translate.SafeHost(cfg.BaseURL)

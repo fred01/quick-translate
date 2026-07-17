@@ -3,14 +3,27 @@ package tui
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/fred01/quick-translate/internal/prompt"
 	"github.com/fred01/quick-translate/internal/translate"
 )
+
+// toneOptions is the left-to-right order, labels, and hit-test IDs of the tone
+// selector. It is the single source of truth shared by the renderer, the
+// keyboard cycler, and the mouse handler.
+var toneOptions = []struct {
+	tone  prompt.Tone
+	id    buttonID
+	label string
+}{
+	{prompt.ToneLiteral, btnToneLiteral, "Literal"},
+	{prompt.ToneNeutral, btnToneNeutral, "Neutral"},
+	{prompt.ToneDiplomatic, btnToneDiplomatic, "Diplomatic"},
+}
 
 // View implements tea.Model. It renders the current screen and records the
 // rendered hit-boxes into the shared holder so the mouse handler can resolve
@@ -19,6 +32,7 @@ func (m model) View() tea.View {
 	var content string
 	var zones map[buttonID]rect
 	var rows []rect
+	var resultTabs []rect
 
 	switch {
 	case m.screen == screenSetup && m.setupMode == setupEdit:
@@ -26,12 +40,13 @@ func (m model) View() tea.View {
 	case m.screen == screenSetup:
 		content, zones, rows = m.buildSetupListView()
 	default:
-		content, zones = m.buildTranslateView()
+		content, zones, resultTabs = m.buildTranslateView()
 	}
 
 	if m.holder != nil {
 		m.holder.zones = zones
 		m.holder.rows = rows
+		m.holder.resultTabs = resultTabs
 	}
 
 	v := tea.NewView(content)
@@ -63,7 +78,7 @@ func (m model) rowWidth() int {
 
 // --- Translate screen ---
 
-func (m model) buildTranslateView() (string, map[buttonID]rect) {
+func (m model) buildTranslateView() (string, map[buttonID]rect, []rect) {
 	zones := map[buttonID]rect{}
 	var lines []string
 
@@ -78,21 +93,42 @@ func (m model) buildTranslateView() (string, map[buttonID]rect) {
 	lines = appendLines(lines, m.box(m.context.View(), m.focus == focusContext))
 	lines = appendLines(lines, "")
 
+	toneRow, toneZones := m.renderToneSelector(len(lines))
+	for id, r := range toneZones {
+		zones[id] = r
+	}
+	lines = appendLines(lines, toneRow)
+	lines = appendLines(lines, "")
+
 	lines = appendLines(lines, " "+styleLabel.Render("Source"))
 	lines = appendLines(lines, m.box(m.source.View(), m.focus == focusSource))
 	lines = appendLines(lines, "")
 
 	translateBtn := renderButton("Translate", m.focus == focusTranslateBtn, false)
+	clearBtn := renderButton("Clear", m.focus == focusClearBtn, false)
 	btnY := len(lines)
-	zones[btnTranslate] = rect{x0: 1, y0: btnY, x1: lipgloss.Width(translateBtn), y1: btnY}
-	lines = appendLines(lines, " "+translateBtn)
+	translateW := lipgloss.Width(translateBtn)
+	clearX0 := 1 + translateW + 3
+	zones[btnTranslate] = rect{x0: 1, y0: btnY, x1: translateW, y1: btnY}
+	zones[btnClear] = rect{x0: clearX0, y0: btnY, x1: clearX0 + lipgloss.Width(clearBtn) - 1, y1: btnY}
+	lines = appendLines(lines, " "+translateBtn+"   "+clearBtn)
 	lines = appendLines(lines, "")
+
+	// The result-tab row appears only when more than one variant was
+	// requested, so a single-tone translation looks exactly as before.
+	var resultTabs []rect
+	if len(m.reqTones) > 1 {
+		tabRow, tabs := m.renderResultTabs(len(lines))
+		resultTabs = tabs
+		lines = appendLines(lines, tabRow)
+		lines = appendLines(lines, "")
+	}
 
 	lines = appendLines(lines, " "+styleLabel.Render("Translation"))
 	lines = appendLines(lines, m.box(m.result.View(), false))
 	lines = appendLines(lines, "")
 
-	copyBtn := renderButton("Copy", m.focus == focusCopyBtn, m.resultText == "")
+	copyBtn := renderButton("Copy", m.focus == focusCopyBtn, m.activeResultText() == "")
 	statusY := len(lines)
 	zones[btnCopy] = rect{x0: 1, y0: statusY, x1: lipgloss.Width(copyBtn), y1: statusY}
 	status := m.statusText()
@@ -103,7 +139,81 @@ func (m model) buildTranslateView() (string, map[buttonID]rect) {
 
 	lines = appendLines(lines, m.helpLine())
 
-	return strings.Join(lines, "\n"), zones
+	return strings.Join(lines, "\n"), zones, resultTabs
+}
+
+// renderToneSelector renders the "Tone" label and the three tone checkboxes on
+// a single line at row y, returning that line and the checkbox hit-boxes.
+func (m model) renderToneSelector(y int) (string, map[buttonID]rect) {
+	zones := map[buttonID]rect{}
+	focused := m.focus == focusTone
+
+	label := " " + styleLabel.Render("Tone")
+	var b strings.Builder
+	b.WriteString(label)
+	b.WriteString("  ")
+	x := lipgloss.Width(label) + 2
+	for i, opt := range toneOptions {
+		chip := renderToneCheckbox(opt.label, m.toneSelected[opt.tone], focused && i == m.toneCursor)
+		w := lipgloss.Width(chip)
+		zones[opt.id] = rect{x0: x, y0: y, x1: x + w - 1, y1: y}
+		b.WriteString(chip)
+		x += w
+		if i < len(toneOptions)-1 {
+			b.WriteString(" ")
+			x++
+		}
+	}
+	return b.String(), zones
+}
+
+// renderResultTabs renders one button per requested tone at row y, highlighting
+// the active one, and returns that line plus the per-tab hit-boxes (indexed
+// like reqTones). A tab whose request failed is marked with a trailing "!".
+func (m model) renderResultTabs(y int) (string, []rect) {
+	tabs := make([]rect, len(m.reqTones))
+	focused := m.focus == focusResultTabs
+
+	label := " " + styleLabel.Render("Variants")
+	var b strings.Builder
+	b.WriteString(label)
+	b.WriteString("  ")
+	x := lipgloss.Width(label) + 2
+	for i, tone := range m.reqTones {
+		lbl := toneLabel(tone)
+		if r, ok := m.results[tone]; ok && r.err != nil {
+			lbl += " !"
+		}
+		active := tone == m.activeResult
+		btn := renderButton(lbl, active && focused, false)
+		if active && !focused {
+			btn = styleTabActive.Render(lbl)
+		}
+		w := lipgloss.Width(btn)
+		tabs[i] = rect{x0: x, y0: y, x1: x + w - 1, y1: y}
+		b.WriteString(btn)
+		x += w
+		if i < len(m.reqTones)-1 {
+			b.WriteString(" ")
+			x++
+		}
+	}
+	return b.String(), tabs
+}
+
+// toneIndex returns the position of tone in the display order, or 0.
+func toneIndex(tone prompt.Tone) int {
+	for i, opt := range toneOptions {
+		if opt.tone == tone {
+			return i
+		}
+	}
+	return 0
+}
+
+// toneLabel returns the display label for tone.
+func toneLabel(tone prompt.Tone) string {
+	return toneOptions[toneIndex(tone)].label
 }
 
 func (m model) renderHeader() (string, map[buttonID]rect) {
@@ -154,24 +264,14 @@ func (m model) endpointLabel() string {
 func (m model) statusText() string {
 	switch {
 	case m.busy:
-		switch m.stage {
-		case translate.StagePreparing:
-			return "Preparing request…"
-		case translate.StageSending:
-			return fmt.Sprintf("Sending to %s · %s", m.host, m.modelName)
-		default:
-			return fmt.Sprintf("Waiting for response… %s", formatElapsed(time.Since(m.requestStarted).Seconds()))
+		if total := len(m.reqTones); total > 1 {
+			return fmt.Sprintf("Translating %d variants…", total)
 		}
+		return "Translating…"
 	case m.cancelled:
 		return "Cancelled"
-	case m.err != nil:
-		return "Error: " + m.err.Error()
 	case m.everSubmitted:
-		s := fmt.Sprintf("Received %d chars · %s", m.lastOutputChars, formatElapsed(m.lastElapsed))
-		if m.copied {
-			s += " · copied to clipboard"
-		}
-		return s
+		return m.activeResultStatus()
 	case m.notice != "":
 		return m.notice
 	default:
@@ -179,12 +279,43 @@ func (m model) statusText() string {
 	}
 }
 
-func (m model) helpLine() string {
-	newlineHelp := "Alt+Enter newline"
-	if m.keyDisambiguation {
-		newlineHelp = "Shift+Enter newline"
+// activeResultStatus describes the active tab's outcome for the status line:
+// its error, or its size and elapsed time (with a copied marker), prefixed
+// with the tone name when more than one variant was requested.
+func (m model) activeResultStatus() string {
+	r, ok := m.results[m.activeResult]
+	if !ok {
+		return "Ready"
 	}
-	return styleHelp.Render(fmt.Sprintf(" Enter translate · %s · Tab field · Ctrl+C quit", newlineHelp))
+	prefix := ""
+	if len(m.reqTones) > 1 {
+		prefix = toneLabel(m.activeResult) + ": "
+	}
+	if r.err != nil {
+		return prefix + "Error: " + r.err.Error()
+	}
+	s := prefix + fmt.Sprintf("Received %d chars · %s", r.outputChars, formatElapsed(r.elapsed))
+	if m.copied {
+		s += " · copied to clipboard"
+	}
+	return s
+}
+
+func (m model) helpLine() string {
+	var help string
+	switch m.focus {
+	case focusTone:
+		help = " Space toggle · ←→ move · Enter translate · Tab field · Ctrl+C quit"
+	case focusResultTabs:
+		help = " ←→ switch variant · Enter translate · Tab field · Ctrl+C quit"
+	default:
+		newlineHelp := "Alt+Enter newline"
+		if m.keyDisambiguation {
+			newlineHelp = "Shift+Enter newline"
+		}
+		help = fmt.Sprintf(" Enter translate · %s · Tab field · Ctrl+C quit", newlineHelp)
+	}
+	return styleHelp.Render(help)
 }
 
 // --- Profile manager: list mode ---

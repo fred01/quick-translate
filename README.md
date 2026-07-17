@@ -134,14 +134,49 @@ qt --context "Did you finish the report?" --text "Да, закончил вче�
 # Yes, I finished it yesterday.
 ```
 
+### Tone
+
+An optional `--tone` selects how faithfully versus how diplomatically the
+source's register is rendered:
+
+| Tone         | Behavior                                                                 |
+| ------------ | ------------------------------------------------------------------------ |
+| `literal`    | Stays as close to the source's wording, directness, and emotional intensity as grammatical English allows. |
+| `neutral`    | Clear, polished, professional business English, with slang and strong wording softened. |
+| `diplomatic` | The default. Maximally courteous and tactful; reframes complaints and refusals into considerate wording. |
+
+```sh
+qt --tone literal --text "Опять сборка упала из-за твоего коммита."
+qt --tone neutral --text "Опять сборка упала из-за твоего коммита."
+```
+
+The meaning, facts, and the essential point are preserved in every tone;
+only the register changes. `diplomatic` is the default, so omitting `--tone`
+leans polite; pass `--tone neutral` or `--tone literal` for a plainer or
+closer rendering.
+
 ### Interactive mode
 
 Running `qt` with no `--text` in a real terminal (stdin and stdout both
 terminals) launches an interactive UI with Context, Source, and Translation
-panes, plus clickable **Translate**, **Copy**, and **Setup** buttons. Long
-translations wrap at word boundaries. The **Setup** button opens the profile
-manager in place, so you can switch the active profile or edit profiles
-without leaving the UI.
+panes, a **Tone** selector, plus clickable **Translate**, **Clear**,
+**Copy**, and **Setup** buttons. Long translations wrap at word boundaries.
+
+The **Tone** selector above Source is a set of **checkboxes** (Literal,
+Neutral, Diplomatic): check one or several. A single **Translate** then asks
+the model for every checked tone in **one request** — the prompt requests all
+the variants at once and `qt` splits the labeled response — so N variants
+cost one round-trip and one pass over the source rather than N. When more
+than one tone was requested, a **Variants** row of buttons appears above
+Translation; click a button (or focus the row and use `←`/`→`) to flip the
+Translation pane between the results. A variant the model fails to return is
+marked with `!` on its tab. `--tone` sets which box starts checked when the
+UI opens.
+
+The **Clear** button empties Source and Context and drops the results for a
+fresh start (the tone selection and active profile are kept). The **Setup**
+button opens the profile manager in place, so you can switch the active
+profile or edit profiles without leaving the UI.
 
 An explicit `translate` subcommand is also available and behaves
 identically to the root command: `qt translate --text "..."`.
@@ -150,17 +185,19 @@ identically to the root command: `qt translate --text "..."`.
 
 | Key                        | Action                                     |
 | --------------------------- | ------------------------------------------- |
-| `Tab` / `Shift+Tab`         | Move focus (Source, Context, and buttons)   |
+| `Tab` / `Shift+Tab`         | Move focus (Source, Context, Tone, and buttons) |
+| `Space`                     | Toggle the tone checkbox under the cursor (when Tone is focused) |
+| `←` / `→`                   | Move the tone cursor, or switch the shown variant, depending on focus |
 | `Enter`                     | Activate the focused element (e.g. Translate) |
 | `Shift+Enter`                | Insert a newline (modern terminals only)   |
 | `Alt+Enter`                  | Insert a newline (always works)            |
 | `Esc`                        | Cancel an active request, without exiting   |
 | `Ctrl+C`                     | Cancel any active request and quit          |
 | `PageUp` / `PageDown`        | Scroll the Translation pane                 |
-| Mouse click                 | Activate a button (Translate / Copy / Setup) |
+| Mouse click                 | Activate a button or a Variants tab         |
 
-The **Copy** button (also reachable with `Tab`) copies the current
-translation to the system clipboard via OSC52 once a translation exists.
+The **Copy** button (also reachable with `Tab`) copies the currently shown
+variant to the system clipboard via OSC52 once a translation exists.
 
 **Shift+Enter limitation:** distinguishing Shift+Enter from plain Enter
 requires a terminal that supports Bubble Tea's keyboard enhancement
@@ -212,11 +249,18 @@ JSON with named profiles and an active one:
     "nvidia": {
       "base_url": "https://integrate.api.nvidia.com/v1",
       "model": "meta/llama-3.1-70b-instruct",
-      "api_key": "..."
+      "api_key": "...",
+      "timeout_seconds": 180
     }
   }
 }
 ```
+
+Each profile may set an optional `timeout_seconds` bounding a single request.
+It defaults to `60` when omitted (or zero) — raise it for slow, self-hosted
+models on modest hardware, where a cold start or a multi-tone request can take
+a while. The setup form does not edit this field, but it is preserved when you
+edit a profile through the form.
 
 An older single-endpoint config (a flat `{base_url, model, api_key}`) is
 transparently migrated into a profile named `default` on first load.
@@ -233,12 +277,15 @@ QT_PROFILE    select the active profile by name
 QT_BASE_URL   override the chosen profile's base URL
 QT_MODEL      override the chosen profile's model
 QT_API_KEY    override the chosen profile's API key
+QT_TIMEOUT    override the chosen profile's per-request timeout (whole seconds)
 ```
 
 Profile selection precedence is `--profile` flag > `QT_PROFILE` > the stored
-active profile. The `QT_BASE_URL`/`QT_MODEL`/`QT_API_KEY` variables then
-override the individual fields of the chosen profile. The three effective
-field values (from a profile and/or the environment) are all required.
+active profile. The `QT_BASE_URL`/`QT_MODEL`/`QT_API_KEY`/`QT_TIMEOUT`
+variables then override the individual fields of the chosen profile.
+`QT_TIMEOUT` is ignored unless it parses to a positive integer. The base URL,
+model, and API key (from a profile and/or the environment) are all required;
+the timeout is optional and defaults to 60 seconds.
 
 ## Shell completion
 

@@ -8,6 +8,10 @@ The command **Translate RU→EN** opens a form with:
 
 - **Russian** — the text to translate (autofocused).
 - **Context** — optional reference context passed to `qt --context`.
+- **Tone** — how faithfully versus how diplomatically the source's register is
+  rendered, passed to `qt --tone`: **Diplomatic** (the default, most
+  courteous), **Neutral** (polished business English), or **Literal** (closest
+  to the source).
 - **Profile** — which `qt` profile to use; the list is read live from `qt`'s
   config, preselecting the `Default profile` preference (default `LiteLLM`).
 

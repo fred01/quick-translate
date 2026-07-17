@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/fred01/quick-translate/internal/config"
+	"github.com/fred01/quick-translate/internal/prompt"
 )
 
 func TestRootTextFlag(t *testing.T) {
@@ -128,6 +129,73 @@ func TestTextFlagPreventsStdinRead(t *testing.T) {
 	}
 	if h.Stdin.Len() == 0 {
 		t.Fatal("stdin was consumed even though --text was set")
+	}
+}
+
+func TestToneFlagDefaultsToDiplomatic(t *testing.T) {
+	h := newHarness(t)
+	root := NewRootCommand(h.Deps())
+	root.SetArgs([]string{"--text", "hello"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error: %v", err)
+	}
+	if h.Translator.lastInput.Tone != prompt.DefaultTone {
+		t.Fatalf("default tone = %v, want DefaultTone (%v)", h.Translator.lastInput.Tone, prompt.DefaultTone)
+	}
+	if prompt.DefaultTone != prompt.ToneDiplomatic {
+		t.Fatalf("DefaultTone = %v, want ToneDiplomatic", prompt.DefaultTone)
+	}
+}
+
+func TestToneFlagThreadsToBatchInput(t *testing.T) {
+	h := newHarness(t)
+	root := NewRootCommand(h.Deps())
+	root.SetArgs([]string{"--tone", "diplomatic", "--text", "hello"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error: %v", err)
+	}
+	if h.Translator.lastInput.Tone != prompt.ToneDiplomatic {
+		t.Fatalf("batch tone = %v, want ToneDiplomatic", h.Translator.lastInput.Tone)
+	}
+}
+
+func TestToneFlagThreadsToTUI(t *testing.T) {
+	h := newHarness(t)
+	h.StdinTerminal = true
+	h.StdoutTerminal = true
+	root := NewRootCommand(h.Deps())
+	root.SetArgs([]string{"--tone", "literal"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error: %v", err)
+	}
+	if h.TUICalls != 1 {
+		t.Fatalf("TUI runner called %d times, want 1", h.TUICalls)
+	}
+	if h.TUITone != prompt.ToneLiteral {
+		t.Fatalf("TUI initial tone = %v, want ToneLiteral", h.TUITone)
+	}
+}
+
+func TestInvalidToneIsRejected(t *testing.T) {
+	h := newHarness(t)
+	root := NewRootCommand(h.Deps())
+	root.SetArgs([]string{"--tone", "shouty", "--text", "hello"})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("Execute() = nil error, want error for invalid tone")
+	}
+	if ExitCode(err) != 1 {
+		t.Fatalf("ExitCode = %d, want 1", ExitCode(err))
+	}
+	if h.TranslatorCalls != 0 {
+		t.Fatalf("NewTranslator called %d times, want 0 (invalid input must not reach the network)", h.TranslatorCalls)
+	}
+	if !strings.Contains(h.Stderr.String(), "unknown tone") {
+		t.Fatalf("stderr = %q, want it to mention the unknown tone", h.Stderr.String())
 	}
 }
 
