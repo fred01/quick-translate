@@ -69,6 +69,17 @@ func (m model) box(content string, focused bool) string {
 	return styleBoxBlurred.Render(content)
 }
 
+// appendFieldBox renders a bordered field box, appends it to lines, and
+// returns its screen rect so the caller can register it as a mouse hit-box
+// (clicking anywhere in the box focuses the field).
+func (m model) appendFieldBox(lines *[]string, content string, focused bool) rect {
+	box := m.box(content, focused)
+	y0 := len(*lines)
+	*lines = appendLines(*lines, box)
+	height := strings.Count(box, "\n") + 1
+	return rect{x0: 0, y0: y0, x1: m.rowWidth() - 1, y1: y0 + height - 1}
+}
+
 func (m model) rowWidth() int {
 	if m.width > 0 {
 		return m.width
@@ -90,7 +101,7 @@ func (m model) buildTranslateView() (string, map[buttonID]rect, []rect) {
 	lines = appendLines(lines, "")
 
 	lines = appendLines(lines, " "+styleLabel.Render("Context (optional)"))
-	lines = appendLines(lines, m.box(m.context.View(), m.focus == focusContext))
+	zones[btnContextField] = m.appendFieldBox(&lines, m.context.View(), m.focus == focusContext)
 	lines = appendLines(lines, "")
 
 	toneRow, toneZones := m.renderToneSelector(len(lines))
@@ -101,7 +112,7 @@ func (m model) buildTranslateView() (string, map[buttonID]rect, []rect) {
 	lines = appendLines(lines, "")
 
 	lines = appendLines(lines, " "+styleLabel.Render("Source"))
-	lines = appendLines(lines, m.box(m.source.View(), m.focus == focusSource))
+	zones[btnSourceField] = m.appendFieldBox(&lines, m.source.View(), m.focus == focusSource)
 	lines = appendLines(lines, "")
 
 	translateBtn := renderButton("Translate", m.focus == focusTranslateBtn, false)
@@ -410,15 +421,15 @@ func (m model) buildSetupEditView() (string, map[buttonID]rect) {
 	lines = appendLines(lines, "")
 
 	lines = appendLines(lines, " "+styleLabel.Render("Profile name"))
-	lines = appendLines(lines, m.box(m.setupInputs[editName].View(), m.setupFocus == editName))
+	zones[btnEditNameField] = m.appendFieldBox(&lines, m.setupInputs[editName].View(), m.setupFocus == editName)
 	lines = appendLines(lines, "")
 
 	lines = appendLines(lines, " "+styleLabel.Render("Base URL")+styleHelp.Render("  (OpenAI-compatible API root, must include /v1)"))
-	lines = appendLines(lines, m.box(m.setupInputs[editBaseURL].View(), m.setupFocus == editBaseURL))
+	zones[btnEditBaseURLField] = m.appendFieldBox(&lines, m.setupInputs[editBaseURL].View(), m.setupFocus == editBaseURL)
 	lines = appendLines(lines, "")
 
 	lines = appendLines(lines, " "+styleLabel.Render("Model"))
-	lines = appendLines(lines, m.box(m.setupInputs[editModel].View(), m.setupFocus == editModel))
+	zones[btnEditModelField] = m.appendFieldBox(&lines, m.setupInputs[editModel].View(), m.setupFocus == editModel)
 	lines = appendLines(lines, "")
 
 	apiKeyHelp := "  (required)"
@@ -426,7 +437,7 @@ func (m model) buildSetupEditView() (string, map[buttonID]rect) {
 		apiKeyHelp = "  (blank keeps the current key)"
 	}
 	lines = appendLines(lines, " "+styleLabel.Render("API Key")+styleHelp.Render(apiKeyHelp))
-	lines = appendLines(lines, m.box(m.setupInputs[editAPIKey].View(), m.setupFocus == editAPIKey))
+	zones[btnEditAPIKeyField] = m.appendFieldBox(&lines, m.setupInputs[editAPIKey].View(), m.setupFocus == editAPIKey)
 	lines = appendLines(lines, "")
 
 	saveBtn := renderButton("Save", m.setupFocus == editSaveBtn, false)

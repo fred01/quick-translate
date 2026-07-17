@@ -96,20 +96,22 @@ func TestSourceInitiallyFocused(t *testing.T) {
 func TestTabAndShiftTabChangeFields(t *testing.T) {
 	m := newTestModel(&fakeTranslator{})
 
-	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyTab})
+	// The ring runs Tone, Context, Source, ... so Shift+Tab from Source (the
+	// initial focus) steps back to Context, its immediate predecessor.
+	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
 	if m.focus != focusContext {
-		t.Fatalf("after Tab, focus = %v, want focusContext", m.focus)
+		t.Fatalf("after Shift+Tab, focus = %v, want focusContext", m.focus)
 	}
 	if !m.context.Focused() || m.source.Focused() {
-		t.Fatal("after Tab, Context must be focused and Source must not")
+		t.Fatal("after Shift+Tab, Context must be focused and Source must not")
 	}
 
-	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyTab})
 	if m.focus != focusSource {
-		t.Fatalf("after Shift+Tab, focus = %v, want focusSource", m.focus)
+		t.Fatalf("after Tab, focus = %v, want focusSource", m.focus)
 	}
 	if !m.source.Focused() || m.context.Focused() {
-		t.Fatal("after Shift+Tab, Source must be focused and Context must not")
+		t.Fatal("after Tab, Source must be focused and Context must not")
 	}
 }
 
@@ -171,7 +173,7 @@ func TestAltEnterInsertsNewline(t *testing.T) {
 
 func TestShiftEnterInsertsIntoFocusedContext(t *testing.T) {
 	m := newTestModel(&fakeTranslator{})
-	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyTab}) // focus Context
+	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}) // focus Context
 	m.context.SetValue("ctx")
 
 	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift})

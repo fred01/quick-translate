@@ -321,12 +321,15 @@ func (m *model) cycleFocus(dir int) tea.Cmd {
 	return m.setFocus(next)
 }
 
-// focusOrder returns the focusable elements in visual Tab order. The result
-// tabs join only when more than one variant was requested; Copy joins once
-// the active tab has a translation. Setup and Quit are deliberately excluded
-// — they are mouse-only.
+// focusOrder returns the focusable elements in visual Tab order: top to
+// bottom as laid out on screen (Tone, Source, Translate, Clear, result tabs,
+// Copy), except Context — which is drawn above Tone — is pulled down to
+// second place instead of first. The result tabs join only when more than
+// one variant was requested; Copy joins once the active tab has a
+// translation. Setup and Quit are deliberately excluded — they are
+// mouse-only.
 func (m *model) focusOrder() []focusTarget {
-	order := []focusTarget{focusSource, focusContext, focusTone, focusTranslateBtn, focusClearBtn}
+	order := []focusTarget{focusTone, focusContext, focusSource, focusTranslateBtn, focusClearBtn}
 	if len(m.reqTones) > 1 {
 		order = append(order, focusResultTabs)
 	}
@@ -397,6 +400,12 @@ func (m model) handleMouseClickTranslate(msg tea.MouseClickMsg) (tea.Model, tea.
 	case btnToneLiteral, btnToneNeutral, btnToneDiplomatic:
 		m.toggleToneByButton(id)
 		cmd := m.setFocus(focusTone)
+		return m, cmd
+	case btnSourceField:
+		cmd := m.setFocus(focusSource)
+		return m, cmd
+	case btnContextField:
+		cmd := m.setFocus(focusContext)
 		return m, cmd
 	}
 	return m, nil
@@ -822,8 +831,30 @@ func (m model) handleMouseClickEdit(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) 
 		m.setupMode = setupList
 		m.setupErr = nil
 		return m, nil
+	case btnEditNameField:
+		cmd := m.setEditFocus(editName)
+		return m, cmd
+	case btnEditBaseURLField:
+		cmd := m.setEditFocus(editBaseURL)
+		return m, cmd
+	case btnEditModelField:
+		cmd := m.setEditFocus(editModel)
+		return m, cmd
+	case btnEditAPIKeyField:
+		cmd := m.setEditFocus(editAPIKey)
+		return m, cmd
 	}
 	return m, nil
+}
+
+// setEditFocus moves keyboard focus to the given profile-editor field, the
+// mouse-click counterpart to cycleEditFocus.
+func (m *model) setEditFocus(field int) tea.Cmd {
+	m.setupFocus = field
+	for i := range m.setupInputs {
+		m.setupInputs[i].Blur()
+	}
+	return m.setupInputs[field].Focus()
 }
 
 // resize adjusts every component's dimensions to fit a width×height

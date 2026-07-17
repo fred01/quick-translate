@@ -194,7 +194,7 @@ identically to the root command: `qt translate --text "..."`.
 | `Esc`                        | Cancel an active request, without exiting   |
 | `Ctrl+C`                     | Cancel any active request and quit          |
 | `PageUp` / `PageDown`        | Scroll the Translation pane                 |
-| Mouse click                 | Activate a button or a Variants tab         |
+| Mouse click                 | Activate a button, a Variants tab, or focus a field |
 
 The **Copy** button (also reachable with `Tab`) copies the currently shown
 variant to the system clipboard via OSC52 once a translation exists.

@@ -97,9 +97,11 @@ func TestFocusRingExcludesMouseOnlyButtons(t *testing.T) {
 	m := newTestModel(&fakeTranslator{})
 
 	// No result yet: the result tabs and Copy are not focusable; Setup and
-	// Quit are never in the ring (they are mouse-only).
+	// Quit are never in the ring (they are mouse-only). Context is drawn
+	// above Tone and Source on screen but is pulled down to second place in
+	// the ring; everything else follows screen order top to bottom.
 	order := m.focusOrder()
-	want := []focusTarget{focusSource, focusContext, focusTone, focusTranslateBtn, focusClearBtn}
+	want := []focusTarget{focusTone, focusContext, focusSource, focusTranslateBtn, focusClearBtn}
 	if len(order) != len(want) {
 		t.Fatalf("focusOrder without result = %v, want %v", order, want)
 	}
@@ -113,7 +115,7 @@ func TestFocusRingExcludesMouseOnlyButtons(t *testing.T) {
 	m.reqTones = []prompt.Tone{prompt.DefaultTone}
 	m.results[prompt.DefaultTone] = toneResult{text: "something"}
 	order = m.focusOrder()
-	wantWithCopy := []focusTarget{focusSource, focusContext, focusTone, focusTranslateBtn, focusClearBtn, focusCopyBtn}
+	wantWithCopy := []focusTarget{focusTone, focusContext, focusSource, focusTranslateBtn, focusClearBtn, focusCopyBtn}
 	if len(order) != len(wantWithCopy) {
 		t.Fatalf("focusOrder with one result = %v, want %v", order, wantWithCopy)
 	}
@@ -123,7 +125,7 @@ func TestFocusRingExcludesMouseOnlyButtons(t *testing.T) {
 	m.activeResult = prompt.ToneLiteral
 	m.results = map[prompt.Tone]toneResult{prompt.ToneLiteral: {text: "x"}, prompt.ToneDiplomatic: {text: "y"}}
 	order = m.focusOrder()
-	wantWithTabs := []focusTarget{focusSource, focusContext, focusTone, focusTranslateBtn, focusClearBtn, focusResultTabs, focusCopyBtn}
+	wantWithTabs := []focusTarget{focusTone, focusContext, focusSource, focusTranslateBtn, focusClearBtn, focusResultTabs, focusCopyBtn}
 	if len(order) != len(wantWithTabs) {
 		t.Fatalf("focusOrder with two results = %v, want %v", order, wantWithTabs)
 	}
@@ -136,11 +138,12 @@ func TestFocusRingExcludesMouseOnlyButtons(t *testing.T) {
 
 func TestTabCyclesFocusableElements(t *testing.T) {
 	m := newTestModel(&fakeTranslator{})
-	// One variant result: Copy is focusable, tabs are not.
+	// One variant result: Copy is focusable, tabs are not. Starting focus is
+	// Source; the ring runs Tone, Context, Source, Translate, Clear, Copy.
 	m.reqTones = []prompt.Tone{prompt.DefaultTone}
 	m.results[prompt.DefaultTone] = toneResult{text: "x"}
 
-	seq := []focusTarget{focusContext, focusTone, focusTranslateBtn, focusClearBtn, focusCopyBtn, focusSource}
+	seq := []focusTarget{focusTranslateBtn, focusClearBtn, focusCopyBtn, focusTone, focusContext, focusSource}
 	for i, wantFocus := range seq {
 		m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyTab})
 		if m.focus != wantFocus {
@@ -248,6 +251,45 @@ func TestMouseClickTranslateButtonSubmits(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("clicking the Translate button must return a command")
+	}
+}
+
+func TestMouseClickContextFieldFocuses(t *testing.T) {
+	m := newTestModel(&fakeTranslator{})
+	m, _ = update(m, tea.WindowSizeMsg{Width: 90, Height: 32})
+	_ = m.View()
+
+	zone, ok := m.holder.zones[btnContextField]
+	if !ok {
+		t.Fatal("Context field zone was not recorded during render")
+	}
+
+	m, _ = update(m, tea.MouseClickMsg{X: zone.x0, Y: zone.y0, Button: tea.MouseLeft})
+	if m.focus != focusContext {
+		t.Fatalf("clicking the Context field must focus it, focus = %v", m.focus)
+	}
+	if !m.context.Focused() || m.source.Focused() {
+		t.Fatal("clicking Context must focus it and blur Source")
+	}
+}
+
+func TestMouseClickSourceFieldFocuses(t *testing.T) {
+	m := newTestModel(&fakeTranslator{})
+	m, _ = update(m, tea.WindowSizeMsg{Width: 90, Height: 32})
+	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}) // start off Source, on Context
+	_ = m.View()
+
+	zone, ok := m.holder.zones[btnSourceField]
+	if !ok {
+		t.Fatal("Source field zone was not recorded during render")
+	}
+
+	m, _ = update(m, tea.MouseClickMsg{X: zone.x0, Y: zone.y0, Button: tea.MouseLeft})
+	if m.focus != focusSource {
+		t.Fatalf("clicking the Source field must focus it, focus = %v", m.focus)
+	}
+	if !m.source.Focused() || m.context.Focused() {
+		t.Fatal("clicking Source must focus it and blur Context")
 	}
 }
 
@@ -457,6 +499,30 @@ func TestManagerAddStartsBlankEditor(t *testing.T) {
 		if m.setupInputs[i].Value() != "" {
 			t.Fatalf("input %d = %q, want empty for a new profile", i, m.setupInputs[i].Value())
 		}
+	}
+}
+
+func TestMouseClickEditFieldFocuses(t *testing.T) {
+	m, _ := newManagerModel(t, &fakeTranslator{})
+	m.openSetup()
+	m.openEditSelected()
+	m, _ = update(m, tea.WindowSizeMsg{Width: 90, Height: 32})
+	_ = m.View()
+
+	zone, ok := m.holder.zones[btnEditBaseURLField]
+	if !ok {
+		t.Fatal("Base URL field zone was not recorded during render")
+	}
+
+	m, _ = update(m, tea.MouseClickMsg{X: zone.x0, Y: zone.y0, Button: tea.MouseLeft})
+	if m.setupFocus != editBaseURL {
+		t.Fatalf("clicking the Base URL field must focus it, setupFocus = %v", m.setupFocus)
+	}
+	if !m.setupInputs[editBaseURL].Focused() {
+		t.Fatal("clicking Base URL must focus its input")
+	}
+	if m.setupInputs[editName].Focused() {
+		t.Fatal("clicking Base URL must blur the Name input")
 	}
 }
 
