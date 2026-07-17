@@ -854,7 +854,10 @@ func (m *model) setEditFocus(field int) tea.Cmd {
 	for i := range m.setupInputs {
 		m.setupInputs[i].Blur()
 	}
-	return m.setupInputs[field].Focus()
+	if field >= 0 && field < len(m.setupInputs) {
+		return m.setupInputs[field].Focus()
+	}
+	return nil
 }
 
 // resize adjusts every component's dimensions to fit a width×height
