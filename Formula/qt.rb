@@ -3,28 +3,28 @@
 class Qt < Formula
   desc "Translate Russian into clear, natural, polished business English"
   homepage "https://github.com/fred01/quick-translate"
-  version "1.0.0"
+  version "1.1.0"
   license "Apache-2.0"
 
   on_macos do
     on_arm do
-      url "https://github.com/fred01/quick-translate/releases/download/v1.0.0/qt-darwin-arm64.tar.gz"
-      sha256 "30a6229296ebfed5c6f4827fe495890fc0a422aaf1b784a1ce7a56094e51e5f8"
+      url "https://github.com/fred01/quick-translate/releases/download/v1.1.0/qt-darwin-arm64.tar.gz"
+      sha256 "ce72a97618162a67464f41751ed41d810d5690dce766238c19e4199937f8b2c1"
     end
     on_intel do
-      url "https://github.com/fred01/quick-translate/releases/download/v1.0.0/qt-darwin-amd64.tar.gz"
-      sha256 "7e909b714681fc806b63e4c3deda4db78fff38a1c79ca456fcd3eef9edc155b2"
+      url "https://github.com/fred01/quick-translate/releases/download/v1.1.0/qt-darwin-amd64.tar.gz"
+      sha256 "ceeba1f501dedd259e610758eb9bb8bd0b413924d8b6cd0607650d98e5ce3cab"
     end
   end
 
   on_linux do
     on_arm do
-      url "https://github.com/fred01/quick-translate/releases/download/v1.0.0/qt-linux-arm64.tar.gz"
-      sha256 "85fdca228e44bc1a27829be18d31cefd30c75fc2b6772cf732da482105761d70"
+      url "https://github.com/fred01/quick-translate/releases/download/v1.1.0/qt-linux-arm64.tar.gz"
+      sha256 "df8afeea9107b01a000f9e917f104382a086e98492d9b86abe292cd656954abe"
     end
     on_intel do
-      url "https://github.com/fred01/quick-translate/releases/download/v1.0.0/qt-linux-amd64.tar.gz"
-      sha256 "e86489d7e48fd6d3b4aeeea8a5d90420b10a8687537c648eefb9c67485c008cf"
+      url "https://github.com/fred01/quick-translate/releases/download/v1.1.0/qt-linux-amd64.tar.gz"
+      sha256 "b4cb2010aeaf7224fe24715edfbd7b3893932c2fb1a04dd362015b132a061bf4"
     end
   end
 
