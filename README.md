@@ -142,18 +142,19 @@ source's register is rendered:
 | Tone         | Behavior                                                                 |
 | ------------ | ------------------------------------------------------------------------ |
 | `literal`    | Stays as close to the source's wording, directness, and emotional intensity as grammatical English allows. |
-| `neutral`    | Clear, polished, professional business English, with slang and strong wording softened. |
-| `diplomatic` | The default. Maximally courteous and tactful; reframes complaints and refusals into considerate wording. |
+| `neutral`    | The default. Clear, polished, professional business English, with slang and strong wording softened. |
+| `diplomatic` | Maximally courteous and tactful; reframes complaints and refusals into considerate wording. |
 
 ```sh
 qt --tone literal --text "Опять сборка упала из-за твоего коммита."
-qt --tone neutral --text "Опять сборка упала из-за твоего коммита."
+qt --tone diplomatic --text "Опять сборка упала из-за твоего коммита."
 ```
 
 The meaning, facts, and the essential point are preserved in every tone;
-only the register changes. `diplomatic` is the default, so omitting `--tone`
-leans polite; pass `--tone neutral` or `--tone literal` for a plainer or
-closer rendering.
+only the register changes. `neutral` is the default, so omitting `--tone`
+gives the plainest, most concise rendering (and the fastest, since it
+generates the least text); pass `--tone diplomatic` or `--tone literal` for a
+more courteous or closer rendering.
 
 ### Interactive mode
 
@@ -164,9 +165,12 @@ panes, a **Tone** selector, plus clickable **Translate**, **Clear**,
 
 The **Tone** selector above Source is a set of **checkboxes** (Literal,
 Neutral, Diplomatic): check one or several. A single **Translate** then
-requests every checked tone at once — the requests run concurrently, so
-getting all three costs about one round-trip rather than three. When more
-than one tone was requested, a **Variants** row of buttons appears above
+requests every checked tone, running the requests **one at a time**: a
+self-hosted model on a single GPU serves one request at a time anyway, so
+firing them together only makes them contend and risk timing out, and the
+last variant lands no sooner. Sequential requests keep each at full GPU
+throughput, and earlier tones' results appear as soon as they finish. When
+more than one tone was requested, a **Variants** row of buttons appears above
 Translation; click a button (or focus the row and use `←`/`→`) to flip the
 Translation pane between the results. `--tone` sets which box starts checked
 when the UI opens.
@@ -242,7 +246,8 @@ JSON with named profiles and an active one:
     "litellm": {
       "base_url": "http://localhost:4000/v1",
       "model": "translategemma",
-      "api_key": "..."
+      "api_key": "...",
+      "timeout_seconds": 240
     },
     "nvidia": {
       "base_url": "https://integrate.api.nvidia.com/v1",
@@ -252,6 +257,11 @@ JSON with named profiles and an active one:
   }
 }
 ```
+
+`timeout_seconds` is optional and per profile: it bounds each translation
+request. Omit it (or set `0`) to use the default of 180 seconds — generous on
+purpose, since a self-hosted model on a single GPU can be slow, especially
+when cold. Raise it for a large model or long inputs; lower it to fail fast.
 
 An older single-endpoint config (a flat `{base_url, model, api_key}`) is
 transparently migrated into a profile named `default` on first load.
@@ -268,12 +278,16 @@ QT_PROFILE    select the active profile by name
 QT_BASE_URL   override the chosen profile's base URL
 QT_MODEL      override the chosen profile's model
 QT_API_KEY    override the chosen profile's API key
+QT_TIMEOUT    override the per-request timeout, in whole seconds
 ```
 
 Profile selection precedence is `--profile` flag > `QT_PROFILE` > the stored
-active profile. The `QT_BASE_URL`/`QT_MODEL`/`QT_API_KEY` variables then
-override the individual fields of the chosen profile. The three effective
-field values (from a profile and/or the environment) are all required.
+active profile. The `QT_BASE_URL`/`QT_MODEL`/`QT_API_KEY`/`QT_TIMEOUT`
+variables then override the individual fields of the chosen profile.
+`QT_TIMEOUT` must be a positive whole number of seconds; a non-numeric or
+non-positive value is ignored, falling back to the profile's `timeout_seconds`
+or the default. The three effective field values (base URL, model, API key)
+are all required.
 
 ## Shell completion
 

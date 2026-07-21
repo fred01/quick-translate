@@ -253,10 +253,14 @@ func (m *model) activeResultText() string {
 	return ""
 }
 
-// submit starts one translation request per selected tone, fired
-// concurrently so all variants come back from a single round of typing. It
-// does nothing when a batch is already running, Source is empty or
-// whitespace-only, or no tone is selected.
+// submit starts one translation request per selected tone, fired one at a
+// time in tone order rather than concurrently: self-hosted models on a single
+// GPU can only serve one request at once, so firing them together just makes
+// them queue and contend, and the last variant lands no sooner. Running them
+// sequentially keeps each request at full GPU throughput and lets earlier
+// tones' results appear as soon as they finish. It does nothing when a batch
+// is already running, Source is empty or whitespace-only, or no tone is
+// selected.
 func (m *model) submit() tea.Cmd {
 	if m.busy {
 		return nil
@@ -293,12 +297,14 @@ func (m *model) submit() tea.Cmd {
 	}
 
 	contextValue := m.context.Value()
-	cmds := []tea.Cmd{m.spin.Tick}
+	reqCmds := make([]tea.Cmd, 0, len(tones))
 	for _, tone := range tones {
 		input := translate.TranslationInput{Source: source, Context: contextValue, Tone: tone}
-		cmds = append(cmds, translateCmd(ctx, m.translator, input, translate.DiscardReporter{}, seq))
+		reqCmds = append(reqCmds, translateCmd(ctx, m.translator, input, translate.DiscardReporter{}, seq))
 	}
-	return tea.Batch(cmds...)
+	// The spinner ticks concurrently; the translation requests run one after
+	// another via tea.Sequence so they never contend for a single GPU.
+	return tea.Batch(m.spin.Tick, tea.Sequence(reqCmds...))
 }
 
 // copyResult copies the active translation to the system clipboard via OSC52.
@@ -730,10 +736,14 @@ func (m *model) saveEdit() tea.Cmd {
 	// A blank key keeps the key of the profile being edited (looked up by its
 	// original name, so renaming preserves the key). New profiles have no key
 	// to fall back to.
+	// The form does not expose the per-request timeout; carry the edited
+	// profile's stored value through the save so editing other fields never
+	// silently drops it. New profiles keep 0, i.e. config.DefaultTimeout.
 	candidate := config.Config{
-		BaseURL: m.setupInputs[editBaseURL].Value(),
-		Model:   m.setupInputs[editModel].Value(),
-		APIKey:  resolveAPIKey(m.setupInputs[editAPIKey].Value(), m.existingKey()),
+		BaseURL:        m.setupInputs[editBaseURL].Value(),
+		Model:          m.setupInputs[editModel].Value(),
+		APIKey:         resolveAPIKey(m.setupInputs[editAPIKey].Value(), m.existingKey()),
+		TimeoutSeconds: m.existingTimeout(),
 	}
 	if _, err := candidate.Resolve(); err != nil {
 		m.setupErr = err
@@ -767,6 +777,16 @@ func (m *model) existingKey() string {
 		return ""
 	}
 	return m.store.Profiles[m.editName].APIKey
+}
+
+// existingTimeout returns the stored per-request timeout (in seconds) of the
+// profile currently being edited, or 0 (config.DefaultTimeout) for a new
+// profile. The form does not edit this field, so saving preserves it.
+func (m *model) existingTimeout() int {
+	if m.editName == "" {
+		return 0
+	}
+	return m.store.Profiles[m.editName].TimeoutSeconds
 }
 
 func (m *model) cycleEditFocus(dir int) tea.Cmd {

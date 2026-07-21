@@ -31,14 +31,15 @@ interface FormValues {
   tone: string;
 }
 
-// Tone options mirror qt's --tone flag. Diplomatic is the default, matching
-// the CLI, so unattended translations lean polite rather than blunt.
+// Tone options mirror qt's --tone flag. Neutral is the default, matching the
+// CLI, so unattended translations stay concise and faithful (and fastest on a
+// self-hosted GPU) rather than elaborated.
 const TONES = [
-  { value: "diplomatic", title: "Diplomatic — most courteous" },
   { value: "neutral", title: "Neutral — polished business English" },
+  { value: "diplomatic", title: "Diplomatic — most courteous" },
   { value: "literal", title: "Literal — closest to the source" },
 ];
-const DEFAULT_TONE = "diplomatic";
+const DEFAULT_TONE = "neutral";
 
 function loadProfiles(): { names: string[]; active: string } {
   try {

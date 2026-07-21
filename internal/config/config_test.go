@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestNormalizeBaseURL(t *testing.T) {
 	tests := []struct {
@@ -123,4 +126,38 @@ func TestApplyEnv(t *testing.T) {
 			t.Fatalf("ApplyEnv() = %+v, want %+v", got, want)
 		}
 	})
+
+	t.Run("timeout override", func(t *testing.T) {
+		env := map[string]string{EnvTimeout: "120"}
+		got := ApplyEnv(file, func(k string) string { return env[k] })
+		if got.TimeoutSeconds != 120 {
+			t.Fatalf("TimeoutSeconds = %d, want 120", got.TimeoutSeconds)
+		}
+	})
+
+	t.Run("invalid or non-positive timeout is ignored", func(t *testing.T) {
+		for _, v := range []string{"abc", "0", "-5", ""} {
+			got := ApplyEnv(file, func(k string) string {
+				if k == EnvTimeout {
+					return v
+				}
+				return ""
+			})
+			if got.TimeoutSeconds != 0 {
+				t.Fatalf("TimeoutSeconds for %q = %d, want 0 (ignored)", v, got.TimeoutSeconds)
+			}
+		}
+	})
+}
+
+func TestConfigTimeout(t *testing.T) {
+	if got := (Config{}).Timeout(); got != DefaultTimeout {
+		t.Fatalf("unset Timeout() = %v, want DefaultTimeout %v", got, DefaultTimeout)
+	}
+	if got := (Config{TimeoutSeconds: -1}).Timeout(); got != DefaultTimeout {
+		t.Fatalf("negative Timeout() = %v, want DefaultTimeout", got)
+	}
+	if got := (Config{TimeoutSeconds: 90}).Timeout(); got != 90*time.Second {
+		t.Fatalf("Timeout() = %v, want 90s", got)
+	}
 }

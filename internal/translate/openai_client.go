@@ -15,11 +15,11 @@ import (
 	"github.com/fred01/quick-translate/internal/prompt"
 )
 
-// requestTimeout bounds every Chat Completions request made by OpenAIClient.
-// It is generous on purpose: self-hosted models on a single GPU can be slow
-// when cold, and the interactive UI fires one request per selected tone at
-// once, so several may contend for the same GPU and queue behind each other.
-const requestTimeout = 180 * time.Second
+// fallbackTimeout guards against a non-positive timeout being passed to
+// NewOpenAIClient; the canonical default lives in config.DefaultTimeout. The
+// interactive UI runs one tone at a time, so this bound applies to a single
+// request that never contends with another for the same GPU.
+const fallbackTimeout = 180 * time.Second
 
 // TranslationInput is the material for one translation request.
 type TranslationInput struct {
@@ -43,14 +43,18 @@ type OpenAIClient struct {
 }
 
 // NewOpenAIClient builds a Translator against baseURL (an OpenAI-compatible
-// API root including "/v1") using apiKey and model.
-func NewOpenAIClient(baseURL, apiKey, model string) (*OpenAIClient, error) {
+// API root including "/v1") using apiKey and model. timeout bounds each
+// request; a non-positive value falls back to fallbackTimeout.
+func NewOpenAIClient(baseURL, apiKey, model string, timeout time.Duration) (*OpenAIClient, error) {
 	host := SafeHost(baseURL)
 	if host == "" {
 		return nil, fmt.Errorf("invalid base URL: %q", baseURL)
 	}
+	if timeout <= 0 {
+		timeout = fallbackTimeout
+	}
 
-	httpClient := &http.Client{Timeout: requestTimeout}
+	httpClient := &http.Client{Timeout: timeout}
 	client := openai.NewClient(
 		option.WithBaseURL(baseURL),
 		option.WithAPIKey(apiKey),
