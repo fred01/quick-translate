@@ -441,6 +441,10 @@ func (m model) buildSetupEditView() (string, map[buttonID]rect) {
 	zones[btnEditAPIKeyField] = m.appendFieldBox(&lines, m.setupInputs[editAPIKey].View(), m.setupFocus == editAPIKey)
 	lines = appendLines(lines, "")
 
+	lines = appendLines(lines, " "+styleLabel.Render("Timeout (s)")+styleHelp.Render("  (per request; blank for the default 180)"))
+	zones[btnEditTimeoutField] = m.appendFieldBox(&lines, m.setupInputs[editTimeout].View(), m.setupFocus == editTimeout)
+	lines = appendLines(lines, "")
+
 	saveBtn := renderButton("Save", m.setupFocus == editSaveBtn, false)
 	cancelBtn := renderButton("Cancel", m.setupFocus == editCancelBtn, false)
 	btnY := len(lines)

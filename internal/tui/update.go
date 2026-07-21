@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"charm.land/bubbles/v2/spinner"
@@ -253,10 +254,14 @@ func (m *model) activeResultText() string {
 	return ""
 }
 
-// submit starts one translation request per selected tone, fired
-// concurrently so all variants come back from a single round of typing. It
-// does nothing when a batch is already running, Source is empty or
-// whitespace-only, or no tone is selected.
+// submit starts one translation request per selected tone, fired one at a
+// time in tone order rather than concurrently: self-hosted models on a single
+// GPU can only serve one request at once, so firing them together just makes
+// them queue and contend, and the last variant lands no sooner. Running them
+// sequentially keeps each request at full GPU throughput and lets earlier
+// tones' results appear as soon as they finish. It does nothing when a batch
+// is already running, Source is empty or whitespace-only, or no tone is
+// selected.
 func (m *model) submit() tea.Cmd {
 	if m.busy {
 		return nil
@@ -293,12 +298,14 @@ func (m *model) submit() tea.Cmd {
 	}
 
 	contextValue := m.context.Value()
-	cmds := []tea.Cmd{m.spin.Tick}
+	reqCmds := make([]tea.Cmd, 0, len(tones))
 	for _, tone := range tones {
 		input := translate.TranslationInput{Source: source, Context: contextValue, Tone: tone}
-		cmds = append(cmds, translateCmd(ctx, m.translator, input, translate.DiscardReporter{}, seq))
+		reqCmds = append(reqCmds, translateCmd(ctx, m.translator, input, translate.DiscardReporter{}, seq))
 	}
-	return tea.Batch(cmds...)
+	// The spinner ticks concurrently; the translation requests run one after
+	// another via tea.Sequence so they never contend for a single GPU.
+	return tea.Batch(m.spin.Tick, tea.Sequence(reqCmds...))
 }
 
 // copyResult copies the active translation to the system clipboard via OSC52.
@@ -649,6 +656,7 @@ func (m *model) openEditNew() {
 	m.setupInputs[editBaseURL].SetValue("")
 	m.setupInputs[editModel].SetValue("")
 	m.setupInputs[editAPIKey].SetValue("")
+	m.setupInputs[editTimeout].SetValue("")
 	m.beginEdit()
 }
 
@@ -663,8 +671,19 @@ func (m *model) openEditSelected() tea.Cmd {
 	m.setupInputs[editBaseURL].SetValue(p.BaseURL)
 	m.setupInputs[editModel].SetValue(p.Model)
 	m.setupInputs[editAPIKey].SetValue("")
+	m.setupInputs[editTimeout].SetValue(timeoutFieldValue(p.TimeoutSeconds))
 	m.beginEdit()
 	return m.setupInputs[editName].Focus()
+}
+
+// timeoutFieldValue renders a stored timeout for the editor field: the number
+// of seconds, or "" when unset (0) so the field shows its default placeholder
+// rather than a literal "0".
+func timeoutFieldValue(seconds int) string {
+	if seconds <= 0 {
+		return ""
+	}
+	return strconv.Itoa(seconds)
 }
 
 func (m *model) beginEdit() {
@@ -727,13 +746,21 @@ func (m *model) saveEdit() tea.Cmd {
 		m.setupErr = fmt.Errorf("profile name must not be empty")
 		return nil
 	}
+	timeoutSeconds, err := parseTimeoutField(m.setupInputs[editTimeout].Value())
+	if err != nil {
+		m.setupErr = err
+		return nil
+	}
 	// A blank key keeps the key of the profile being edited (looked up by its
 	// original name, so renaming preserves the key). New profiles have no key
-	// to fall back to.
+	// to fall back to. A blank timeout means 0, i.e. config.DefaultTimeout;
+	// the field is prefilled from the stored value on edit, so leaving it
+	// untouched preserves it.
 	candidate := config.Config{
-		BaseURL: m.setupInputs[editBaseURL].Value(),
-		Model:   m.setupInputs[editModel].Value(),
-		APIKey:  resolveAPIKey(m.setupInputs[editAPIKey].Value(), m.existingKey()),
+		BaseURL:        m.setupInputs[editBaseURL].Value(),
+		Model:          m.setupInputs[editModel].Value(),
+		APIKey:         resolveAPIKey(m.setupInputs[editAPIKey].Value(), m.existingKey()),
+		TimeoutSeconds: timeoutSeconds,
 	}
 	if _, err := candidate.Resolve(); err != nil {
 		m.setupErr = err
@@ -769,19 +796,34 @@ func (m *model) existingKey() string {
 	return m.store.Profiles[m.editName].APIKey
 }
 
+// parseTimeoutField interprets the editor's Timeout field. A blank field means
+// 0 — use config.DefaultTimeout. Otherwise it must be a non-negative whole
+// number of seconds; anything else is a validation error the caller surfaces.
+func parseTimeoutField(s string) (int, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
+	}
+	secs, err := strconv.Atoi(s)
+	if err != nil || secs < 0 {
+		return 0, fmt.Errorf("timeout must be a whole number of seconds (blank for the default)")
+	}
+	return secs, nil
+}
+
 func (m *model) cycleEditFocus(dir int) tea.Cmd {
 	m.setupFocus = (m.setupFocus + dir + editTargetCount) % editTargetCount
 	for i := range m.setupInputs {
 		m.setupInputs[i].Blur()
 	}
-	if m.setupFocus <= editAPIKey {
+	if m.setupFocus <= editTimeout {
 		return m.setupInputs[m.setupFocus].Focus()
 	}
 	return nil
 }
 
 func (m model) forwardToEditInputs(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if m.setupFocus <= editAPIKey {
+	if m.setupFocus <= editTimeout {
 		var cmd tea.Cmd
 		m.setupInputs[m.setupFocus], cmd = m.setupInputs[m.setupFocus].Update(msg)
 		return m, cmd
@@ -843,6 +885,9 @@ func (m model) handleMouseClickEdit(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) 
 		return m, cmd
 	case btnEditAPIKeyField:
 		cmd := m.setEditFocus(editAPIKey)
+		return m, cmd
+	case btnEditTimeoutField:
+		cmd := m.setEditFocus(editTimeout)
 		return m, cmd
 	}
 	return m, nil

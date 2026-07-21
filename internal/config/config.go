@@ -5,15 +5,33 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
 )
 
+// DefaultTimeout bounds a translation request when a profile does not set its
+// own timeout. Self-hosted models on a single GPU can be slow, especially when
+// cold, so it is generous but finite.
+const DefaultTimeout = 180 * time.Second
+
 // Config is the effective qt configuration: the OpenAI-compatible API root,
-// the model name, and the API key.
+// the model name, the API key, and an optional per-request timeout in seconds
+// (0 means DefaultTimeout).
 type Config struct {
-	BaseURL string `json:"base_url"`
-	Model   string `json:"model"`
-	APIKey  string `json:"api_key"`
+	BaseURL        string `json:"base_url"`
+	Model          string `json:"model"`
+	APIKey         string `json:"api_key"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+}
+
+// Timeout returns the per-request timeout for this config, falling back to
+// DefaultTimeout when unset (zero or negative).
+func (c Config) Timeout() time.Duration {
+	if c.TimeoutSeconds <= 0 {
+		return DefaultTimeout
+	}
+	return time.Duration(c.TimeoutSeconds) * time.Second
 }
 
 // Environment variable names that override the config file. QT_PROFILE
@@ -23,6 +41,7 @@ const (
 	EnvBaseURL = "QT_BASE_URL"
 	EnvModel   = "QT_MODEL"
 	EnvAPIKey  = "QT_API_KEY"
+	EnvTimeout = "QT_TIMEOUT"
 	EnvProfile = "QT_PROFILE"
 )
 
@@ -43,6 +62,11 @@ func ApplyEnv(cfg Config, getenv EnvLookup) Config {
 	}
 	if v := getenv(EnvAPIKey); v != "" {
 		cfg.APIKey = v
+	}
+	if v := getenv(EnvTimeout); v != "" {
+		if secs, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && secs > 0 {
+			cfg.TimeoutSeconds = secs
+		}
 	}
 	return cfg
 }

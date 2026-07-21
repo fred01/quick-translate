@@ -416,6 +416,120 @@ func TestManagerEditBlankKeyKeepsExistingKey(t *testing.T) {
 	}
 }
 
+// managerWithTimeout builds a manager model whose active "litellm" profile has
+// a stored per-request timeout, then opens it in the editor.
+func managerWithTimeout(t *testing.T, seconds int) (model, string) {
+	t.Helper()
+	fake := &fakeTranslator{response: "ok"}
+	m, path := newManagerModel(t, fake)
+	prof := m.store.Profiles["litellm"]
+	prof.TimeoutSeconds = seconds
+	m.store.Profiles["litellm"] = prof
+	if err := config.SaveStore(path, m.store); err != nil {
+		t.Fatalf("SaveStore() error: %v", err)
+	}
+	m.openSetup()
+	m.openEditSelected() // litellm
+	return m, path
+}
+
+func TestManagerEditPrefillsAndPreservesTimeout(t *testing.T) {
+	m, path := managerWithTimeout(t, 240)
+
+	// The stored timeout is prefilled into the editable field.
+	if got := m.setupInputs[editTimeout].Value(); got != "240" {
+		t.Fatalf("Timeout field = %q, want prefilled 240", got)
+	}
+	// Editing another field and leaving Timeout untouched preserves it.
+	m.setupInputs[editModel].SetValue("gemma-v2")
+
+	cmd := m.saveEdit()
+	if cmd == nil || m.setupErr != nil {
+		t.Fatalf("saveEdit must succeed; err=%v", m.setupErr)
+	}
+	if msg, _ := findSetupResultMsg(collectMsgs(cmd)); msg.err != nil {
+		t.Fatalf("setup test unexpectedly failed: %v", msg.err)
+	}
+
+	saved, _ := config.LoadStore(path)
+	if got := saved.Profiles["litellm"].TimeoutSeconds; got != 240 {
+		t.Fatalf("TimeoutSeconds after edit = %d, want the preserved 240", got)
+	}
+	if got := saved.Profiles["litellm"].Model; got != "gemma-v2" {
+		t.Fatalf("model after edit = %q, want gemma-v2", got)
+	}
+}
+
+func TestMouseClickTimeoutFieldFocusesIt(t *testing.T) {
+	m, _ := managerWithTimeout(t, 240)
+	m, _ = update(m, tea.WindowSizeMsg{Width: 100, Height: 40})
+	_ = m.View()
+	zone, ok := m.holder.zones[btnEditTimeoutField]
+	if !ok {
+		t.Fatal("Timeout field zone was not recorded during render")
+	}
+
+	m, _ = update(m, tea.MouseClickMsg{X: zone.x0, Y: zone.y0, Button: tea.MouseLeft})
+	if m.setupFocus != editTimeout {
+		t.Fatalf("clicking the Timeout field must focus it; setupFocus=%d", m.setupFocus)
+	}
+}
+
+func TestManagerEditChangesTimeout(t *testing.T) {
+	m, path := managerWithTimeout(t, 240)
+	m.setupInputs[editTimeout].SetValue("300")
+
+	cmd := m.saveEdit()
+	if cmd == nil || m.setupErr != nil {
+		t.Fatalf("saveEdit must succeed; err=%v", m.setupErr)
+	}
+	if msg, _ := findSetupResultMsg(collectMsgs(cmd)); msg.err != nil {
+		t.Fatalf("setup test unexpectedly failed: %v", msg.err)
+	}
+
+	saved, _ := config.LoadStore(path)
+	if got := saved.Profiles["litellm"].TimeoutSeconds; got != 300 {
+		t.Fatalf("TimeoutSeconds after edit = %d, want 300", got)
+	}
+}
+
+func TestManagerEditBlankTimeoutMeansDefault(t *testing.T) {
+	m, path := managerWithTimeout(t, 240)
+	m.setupInputs[editTimeout].SetValue("") // clear → default
+
+	cmd := m.saveEdit()
+	if cmd == nil || m.setupErr != nil {
+		t.Fatalf("saveEdit must succeed; err=%v", m.setupErr)
+	}
+	if msg, _ := findSetupResultMsg(collectMsgs(cmd)); msg.err != nil {
+		t.Fatalf("setup test unexpectedly failed: %v", msg.err)
+	}
+
+	saved, _ := config.LoadStore(path)
+	if got := saved.Profiles["litellm"].TimeoutSeconds; got != 0 {
+		t.Fatalf("TimeoutSeconds after clearing = %d, want 0 (default)", got)
+	}
+}
+
+func TestManagerEditRejectsInvalidTimeout(t *testing.T) {
+	for _, bad := range []string{"abc", "-5", "1.5"} {
+		m, path := managerWithTimeout(t, 240)
+		m.setupInputs[editTimeout].SetValue(bad)
+
+		if cmd := m.saveEdit(); cmd != nil {
+			t.Fatalf("saveEdit(%q) must not proceed to testing", bad)
+		}
+		if m.setupErr == nil {
+			t.Fatalf("saveEdit(%q) must set a validation error", bad)
+		}
+		// Nothing was saved: the stored timeout is unchanged.
+		saved, _ := config.LoadStore(path)
+		if got := saved.Profiles["litellm"].TimeoutSeconds; got != 240 {
+			t.Fatalf("TimeoutSeconds after rejected edit = %d, want the unchanged 240", got)
+		}
+	}
+}
+
 func TestManagerRenameRemovesOldProfile(t *testing.T) {
 	fake := &fakeTranslator{response: "ok"}
 	m, path := newManagerModel(t, fake)
@@ -685,8 +799,11 @@ func focusButton(t *testing.T, m model, target focusTarget) model {
 
 // --- Tone selector (checkboxes) ---
 
-func TestToneDefaultsToDiplomaticChecked(t *testing.T) {
+func TestToneDefaultsToNeutralChecked(t *testing.T) {
 	m := newTestModel(&fakeTranslator{})
+	if prompt.DefaultTone != prompt.ToneNeutral {
+		t.Fatalf("DefaultTone = %v, want ToneNeutral", prompt.DefaultTone)
+	}
 	if !m.toneSelected[prompt.DefaultTone] {
 		t.Fatalf("default tone %v must start checked", prompt.DefaultTone)
 	}

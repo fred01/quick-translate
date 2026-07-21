@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -38,14 +39,33 @@ func collectMsgs(cmd tea.Cmd) []tea.Msg {
 	if msg == nil {
 		return nil
 	}
-	if batch, ok := msg.(tea.BatchMsg); ok {
+	// Both tea.Batch and tea.Sequence produce a message that is a []tea.Cmd
+	// (BatchMsg is exported; the sequence message is not). Traverse either
+	// by shape so the requests wrapped in either are executed. Sequence
+	// preserves order, which is what the sequential-submit test checks.
+	if cmds, ok := asCmdSlice(msg); ok {
 		var out []tea.Msg
-		for _, c := range batch {
+		for _, c := range cmds {
 			out = append(out, collectMsgs(c)...)
 		}
 		return out
 	}
 	return []tea.Msg{msg}
+}
+
+// asCmdSlice reports whether msg is a slice whose elements are tea.Cmd (a
+// BatchMsg or the unexported sequence message) and, if so, returns its
+// commands.
+func asCmdSlice(msg tea.Msg) ([]tea.Cmd, bool) {
+	v := reflect.ValueOf(msg)
+	if v.Kind() != reflect.Slice || v.Type().Elem() != reflect.TypeOf(tea.Cmd(nil)) {
+		return nil, false
+	}
+	cmds := make([]tea.Cmd, v.Len())
+	for i := range cmds {
+		cmds[i] = v.Index(i).Interface().(tea.Cmd)
+	}
+	return cmds, true
 }
 
 // findResultMsg returns the resultMsg among msgs, if any.

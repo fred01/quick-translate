@@ -28,9 +28,10 @@ const (
 )
 
 // DefaultTone is the tone applied when the user does not choose one. It is
-// deliberately the most courteous option, so unattended translations lean
-// polite rather than blunt.
-const DefaultTone = ToneDiplomatic
+// ToneNeutral: clear, professional business English that reproduces the
+// historical prompt byte-for-byte and keeps output the most concise, so
+// unattended translations are fast and faithful rather than elaborated.
+const DefaultTone = ToneNeutral
 
 // String returns the lowercase canonical name of the tone.
 func (t Tone) String() string {

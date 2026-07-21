@@ -90,7 +90,7 @@ func TestTranslateRequestShape(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "translategemma")
+	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "translategemma", 0)
 	if err != nil {
 		t.Fatalf("NewOpenAIClient() error: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestTranslateReportsStagesOnSuccess(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m")
+	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m", 0)
 	if err != nil {
 		t.Fatalf("NewOpenAIClient() error: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestTranslateNoChoices(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m")
+	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m", 0)
 	if err != nil {
 		t.Fatalf("NewOpenAIClient() error: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestTranslateEmptyContent(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m")
+	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m", 0)
 	if err != nil {
 		t.Fatalf("NewOpenAIClient() error: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestTranslateTrimsSurroundingWhitespace(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m")
+	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m", 0)
 	if err != nil {
 		t.Fatalf("NewOpenAIClient() error: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestTranslateNon2xxResponse(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewOpenAIClient(server.URL+"/v1", secretKey, "m")
+	client, err := NewOpenAIClient(server.URL+"/v1", secretKey, "m", 0)
 	if err != nil {
 		t.Fatalf("NewOpenAIClient() error: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestTranslateMalformedResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m")
+	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m", 0)
 	if err != nil {
 		t.Fatalf("NewOpenAIClient() error: %v", err)
 	}
@@ -294,7 +294,7 @@ func TestTranslateTimeout(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m")
+	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m", 0)
 	if err != nil {
 		t.Fatalf("NewOpenAIClient() error: %v", err)
 	}
@@ -327,7 +327,7 @@ func TestTranslateCancellation(t *testing.T) {
 	defer server.Close()
 	defer close(release)
 
-	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m")
+	client, err := NewOpenAIClient(server.URL+"/v1", "sk-test-key", "m", 0)
 	if err != nil {
 		t.Fatalf("NewOpenAIClient() error: %v", err)
 	}

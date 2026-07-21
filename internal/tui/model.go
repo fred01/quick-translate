@@ -53,15 +53,22 @@ const (
 	focusCopyBtn
 )
 
-// profile-editor field/button indices (Tab order).
+// profile-editor field/button indices (Tab order). The text-input fields come
+// first (editName..editTimeout) so a single `focus <= editTimeout` check tells
+// a field apart from the Save/Cancel buttons.
 const (
 	editName = iota
 	editBaseURL
 	editModel
 	editAPIKey
+	editTimeout
 	editSaveBtn
 	editCancelBtn
 	editTargetCount
+
+	// editFieldCount is the number of text-input fields (indices
+	// editName..editTimeout), i.e. the size of setupInputs.
+	editFieldCount = editTimeout + 1
 )
 
 // buttonID identifies a clickable region for mouse hit-testing.
@@ -94,6 +101,7 @@ const (
 	btnEditBaseURLField
 	btnEditModelField
 	btnEditAPIKeyField
+	btnEditTimeoutField
 )
 
 // rect is an inclusive screen-cell bounding box for a clickable region.
@@ -178,7 +186,7 @@ type model struct {
 	setupMode   setupMode
 	listCursor  int
 	editName    string // profile being edited; "" means a new profile
-	setupInputs [4]textinput.Model
+	setupInputs [editFieldCount]textinput.Model
 	setupFocus  int
 	setupBusy   bool
 	setupErr    error
@@ -217,6 +225,8 @@ func newModel(translator translate.Translator, modelName, host string) model {
 	keyIn := textinput.New()
 	keyIn.EchoMode = textinput.EchoPassword
 	keyIn.Placeholder = "leave blank to keep the current key"
+	timeoutIn := textinput.New()
+	timeoutIn.Placeholder = "180"
 
 	return model{
 		translator:   translator,
@@ -234,7 +244,7 @@ func newModel(translator translate.Translator, modelName, host string) model {
 		results:      map[prompt.Tone]toneResult{},
 		activeResult: prompt.DefaultTone,
 		initCmd:      focusCmd,
-		setupInputs:  [4]textinput.Model{nameIn, baseIn, modelIn, keyIn},
+		setupInputs:  [editFieldCount]textinput.Model{nameIn, baseIn, modelIn, keyIn, timeoutIn},
 	}
 }
 
