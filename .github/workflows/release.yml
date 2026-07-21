@@ -23,9 +23,9 @@ jobs:
           - { goos: windows, goarch: amd64, ext: ".exe" }
           - { goos: windows, goarch: arm64, ext: ".exe" }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -63,7 +63,7 @@ jobs:
           shasum -a 256 "$ARCHIVE" > "${ARCHIVE}.sha256"
           rm "$BIN"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: qt-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/*
@@ -74,7 +74,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist-merged
           merge-multiple: true
@@ -87,7 +87,7 @@ jobs:
           cat SHA256SUMS
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist-merged/*
           generate_release_notes: true
@@ -99,12 +99,12 @@ jobs:
     steps:
       # HOMEBREW_TAP_TOKEN is a fred01 PAT (Contents:write). Its owner must be
       # allowed to bypass branch protection on main for the push below to land.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist-merged
           merge-multiple: true
