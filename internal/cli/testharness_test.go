@@ -33,17 +33,6 @@ func (f *fakeTranslator) Translate(_ context.Context, input translate.Translatio
 	return f.response, nil
 }
 
-func (f *fakeTranslator) TranslateMulti(_ context.Context, _, _ string, tones []prompt.Tone, _ translate.Reporter) (map[prompt.Tone]string, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	out := make(map[prompt.Tone]string, len(tones))
-	for _, t := range tones {
-		out[t] = f.response
-	}
-	return out, nil
-}
-
 // harness builds a fresh, fully faked app.Dependencies for one test, and
 // records every call made through it so tests can assert, in particular,
 // that invalid CLI input never reaches the network.
