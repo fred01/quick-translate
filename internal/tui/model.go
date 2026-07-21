@@ -75,6 +75,8 @@ const (
 	btnCopy
 	btnSetup
 	btnQuit
+	btnSourceField
+	btnContextField
 	// Tone selector (translate screen).
 	btnToneLiteral
 	btnToneNeutral
@@ -88,6 +90,10 @@ const (
 	// Profile editor.
 	btnSave
 	btnCancel
+	btnEditNameField
+	btnEditBaseURLField
+	btnEditModelField
+	btnEditAPIKeyField
 )
 
 // rect is an inclusive screen-cell bounding box for a clickable region.
