@@ -62,6 +62,9 @@ adding or editing a profile you provide:
    automatically.
 3. **Model** — the model name your endpoint serves.
 4. **API key** — entered masked. Leave it blank to keep the existing key.
+5. **Timeout (s)** — optional per-request timeout in whole seconds. Leave it
+   blank for the default of 180; raise it for a large or cold model, lower it
+   to fail fast. Editing a profile prefills its current value.
 
 Whenever a profile is saved, `qt` sends one real translation request
 (`Привет!`, with no reference context) through the exact same code path used

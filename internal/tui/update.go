@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"charm.land/bubbles/v2/spinner"
@@ -655,6 +656,7 @@ func (m *model) openEditNew() {
 	m.setupInputs[editBaseURL].SetValue("")
 	m.setupInputs[editModel].SetValue("")
 	m.setupInputs[editAPIKey].SetValue("")
+	m.setupInputs[editTimeout].SetValue("")
 	m.beginEdit()
 }
 
@@ -669,8 +671,19 @@ func (m *model) openEditSelected() tea.Cmd {
 	m.setupInputs[editBaseURL].SetValue(p.BaseURL)
 	m.setupInputs[editModel].SetValue(p.Model)
 	m.setupInputs[editAPIKey].SetValue("")
+	m.setupInputs[editTimeout].SetValue(timeoutFieldValue(p.TimeoutSeconds))
 	m.beginEdit()
 	return m.setupInputs[editName].Focus()
+}
+
+// timeoutFieldValue renders a stored timeout for the editor field: the number
+// of seconds, or "" when unset (0) so the field shows its default placeholder
+// rather than a literal "0".
+func timeoutFieldValue(seconds int) string {
+	if seconds <= 0 {
+		return ""
+	}
+	return strconv.Itoa(seconds)
 }
 
 func (m *model) beginEdit() {
@@ -733,17 +746,21 @@ func (m *model) saveEdit() tea.Cmd {
 		m.setupErr = fmt.Errorf("profile name must not be empty")
 		return nil
 	}
+	timeoutSeconds, err := parseTimeoutField(m.setupInputs[editTimeout].Value())
+	if err != nil {
+		m.setupErr = err
+		return nil
+	}
 	// A blank key keeps the key of the profile being edited (looked up by its
 	// original name, so renaming preserves the key). New profiles have no key
-	// to fall back to.
-	// The form does not expose the per-request timeout; carry the edited
-	// profile's stored value through the save so editing other fields never
-	// silently drops it. New profiles keep 0, i.e. config.DefaultTimeout.
+	// to fall back to. A blank timeout means 0, i.e. config.DefaultTimeout;
+	// the field is prefilled from the stored value on edit, so leaving it
+	// untouched preserves it.
 	candidate := config.Config{
 		BaseURL:        m.setupInputs[editBaseURL].Value(),
 		Model:          m.setupInputs[editModel].Value(),
 		APIKey:         resolveAPIKey(m.setupInputs[editAPIKey].Value(), m.existingKey()),
-		TimeoutSeconds: m.existingTimeout(),
+		TimeoutSeconds: timeoutSeconds,
 	}
 	if _, err := candidate.Resolve(); err != nil {
 		m.setupErr = err
@@ -779,14 +796,19 @@ func (m *model) existingKey() string {
 	return m.store.Profiles[m.editName].APIKey
 }
 
-// existingTimeout returns the stored per-request timeout (in seconds) of the
-// profile currently being edited, or 0 (config.DefaultTimeout) for a new
-// profile. The form does not edit this field, so saving preserves it.
-func (m *model) existingTimeout() int {
-	if m.editName == "" {
-		return 0
+// parseTimeoutField interprets the editor's Timeout field. A blank field means
+// 0 — use config.DefaultTimeout. Otherwise it must be a non-negative whole
+// number of seconds; anything else is a validation error the caller surfaces.
+func parseTimeoutField(s string) (int, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
 	}
-	return m.store.Profiles[m.editName].TimeoutSeconds
+	secs, err := strconv.Atoi(s)
+	if err != nil || secs < 0 {
+		return 0, fmt.Errorf("timeout must be a whole number of seconds (blank for the default)")
+	}
+	return secs, nil
 }
 
 func (m *model) cycleEditFocus(dir int) tea.Cmd {
@@ -794,14 +816,14 @@ func (m *model) cycleEditFocus(dir int) tea.Cmd {
 	for i := range m.setupInputs {
 		m.setupInputs[i].Blur()
 	}
-	if m.setupFocus <= editAPIKey {
+	if m.setupFocus <= editTimeout {
 		return m.setupInputs[m.setupFocus].Focus()
 	}
 	return nil
 }
 
 func (m model) forwardToEditInputs(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if m.setupFocus <= editAPIKey {
+	if m.setupFocus <= editTimeout {
 		var cmd tea.Cmd
 		m.setupInputs[m.setupFocus], cmd = m.setupInputs[m.setupFocus].Update(msg)
 		return m, cmd
@@ -863,6 +885,9 @@ func (m model) handleMouseClickEdit(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) 
 		return m, cmd
 	case btnEditAPIKeyField:
 		cmd := m.setEditFocus(editAPIKey)
+		return m, cmd
+	case btnEditTimeoutField:
+		cmd := m.setEditFocus(editTimeout)
 		return m, cmd
 	}
 	return m, nil
