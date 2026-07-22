@@ -121,8 +121,8 @@ export default function Command() {
         </ActionPanel>
       }
     >
-      <Form.TextArea id="source" title="Russian" placeholder="Введите русский текст…" autoFocus />
       <Form.TextArea id="context" title="Context" placeholder="Optional context to disambiguate the translation" />
+      <Form.TextArea id="source" title="Russian" placeholder="Введите русский текст…" autoFocus />
       <Form.Dropdown id="tone" title="Tone" defaultValue={DEFAULT_TONE}>
         {TONES.map((t) => (
           <Form.Dropdown.Item key={t.value} value={t.value} title={t.title} />
