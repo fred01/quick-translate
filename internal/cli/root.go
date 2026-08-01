@@ -91,6 +91,7 @@ func NewRootCommand(deps app.Dependencies) *cobra.Command {
 	addTranslationFlags(root, &opts)
 
 	root.AddCommand(newTranslateCommand(deps))
+	root.AddCommand(newScriptCommand(deps))
 	root.AddCommand(newSetupCommand(deps))
 	root.AddCommand(newVersionCommand(deps))
 

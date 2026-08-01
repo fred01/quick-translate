@@ -16,7 +16,12 @@ import (
 // fakeTranslator stands in for a real network call so CLI tests never make
 // one; it records exactly what it was asked to translate.
 type fakeTranslator struct {
-	response  string
+	response string
+	// respondTo, when set, builds the reply from the source instead of
+	// returning the canned response. The script command reassembles a numbered
+	// reply onto the source lines, so its tests need a reply that follows the
+	// request rather than a fixed string.
+	respondTo func(source string) string
 	err       error
 	calls     int
 	lastInput translate.TranslationInput
@@ -29,8 +34,12 @@ func (f *fakeTranslator) Translate(_ context.Context, input translate.Translatio
 		reporter.Report(translate.Status{Stage: translate.StageFailed, Err: f.err})
 		return "", f.err
 	}
-	reporter.Report(translate.Status{Stage: translate.StageCompleted, OutputChars: len(f.response)})
-	return f.response, nil
+	response := f.response
+	if f.respondTo != nil {
+		response = f.respondTo(input.Source)
+	}
+	reporter.Report(translate.Status{Stage: translate.StageCompleted, OutputChars: len(response)})
+	return response, nil
 }
 
 // harness builds a fresh, fully faked app.Dependencies for one test, and

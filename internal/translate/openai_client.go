@@ -21,11 +21,31 @@ import (
 // request that never contends with another for the same GPU.
 const fallbackTimeout = 180 * time.Second
 
+// PromptKind selects which prompt a request is built with.
+type PromptKind int
+
+const (
+	// PromptProse is ordinary text: one passage in, one passage out. It is the
+	// zero value, so every existing caller keeps its exact behaviour.
+	PromptProse PromptKind = iota
+	// PromptScript is a numbered batch of narration lines, translated under the
+	// rules that keep the numbering - and therefore the timing - intact.
+	PromptScript
+)
+
 // TranslationInput is the material for one translation request.
 type TranslationInput struct {
 	Source  string
 	Context string
 	Tone    prompt.Tone
+	Kind    PromptKind
+}
+
+func (i TranslationInput) buildPrompt() string {
+	if i.Kind == PromptScript {
+		return prompt.BuildScript(i.Source, i.Context, i.Tone)
+	}
+	return prompt.Build(i.Source, i.Context, i.Tone)
 }
 
 // Translator turns Russian source text into English, optionally informed by
@@ -80,7 +100,7 @@ func SafeHost(baseURL string) string {
 func (c *OpenAIClient) Translate(ctx context.Context, input TranslationInput, reporter Reporter) (string, error) {
 	reporter.Report(Status{Stage: StagePreparing, Host: c.host, Model: c.model})
 
-	builtPrompt := prompt.Build(input.Source, input.Context, input.Tone)
+	builtPrompt := input.buildPrompt()
 	inputChars := len([]rune(input.Source))
 
 	start := time.Now()

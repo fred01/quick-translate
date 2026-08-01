@@ -210,6 +210,57 @@ protocol. `qt` detects this at startup and updates its own help line to show
 whichever binding will actually work in your terminal. `Alt+Enter` is the
 portable fallback and always inserts a newline, everywhere.
 
+## Narration scripts
+
+`qt script` translates a **narration script** — the format
+[speech-translator](https://github.com/fred01/speech-translator)'s `stt` writes
+and its `tts` reads — leaving its timing alone.
+
+```
+@voice am_eric
+[0:02] Привет! Сегодня я покажу новые возможности Orca C L I.
+$delay(0.5s) Первая из них - пресеты.
+[1:20] Дальше - снапшоты. Запустим и подождём.
+```
+
+```sh
+qt script demo.script -o demo.en.script
+qt script demo.script --tone literal
+cat demo.script | qt script > demo.en.script
+```
+
+Only the spoken words are sent anywhere. Timestamps, `$delay`, `@` directives,
+comments, and blank lines come through byte for byte — not because the model is
+asked to preserve them, but because it never sees them. Each line is split into
+a prefix and its text, and only the text is ever transmitted:
+
+```
+[1:20] Первая возможность - пресеты.
+^^^^^^ ^--------------------------^
+prefix  text
+```
+
+The whole script goes in **one request** by default, so the model sees the
+narration as one argument rather than a list of disconnected sentences: a term
+introduced in the opening decides how it is rendered forty lines later. A
+twenty-minute narration is roughly 150 lines and a few thousand tokens, so this
+fits comfortably. `--chunk N` splits a script that will not fit, and then each
+chunk carries the lines around it — the English already produced before it, and
+the Russian still to come — as reference context.
+
+The prompt adds two things on top of the ordinary translation rules. The lines
+are numbered, and the numbering is the contract that puts the translation back
+together. And the text is going to be **spoken over a picture**, so each line is
+asked to stay close to the length of its source: every line lands in a slot of
+fixed length, and one that runs long overruns the video.
+
+`--tone neutral|literal|diplomatic` works exactly as it does for ordinary text.
+
+If a line comes back unaccounted for, it is retried on its own, where there is
+no numbering to lose track of. Anything that still fails is left in Russian and
+named on stderr, and the command exits 1 — a script with two untranslated lines
+is something you can finish by hand; an error message is not.
+
 ## Operational status and `--quiet`
 
 In batch mode (`--text` or piped stdin), `qt` writes concise progress and
